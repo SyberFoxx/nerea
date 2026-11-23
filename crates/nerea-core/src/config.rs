@@ -18,6 +18,20 @@ pub struct Config {
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback: Option<Fallback>,
+    /// Voice preferences; absent until the user answers the question.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice: Option<Voice>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Voice {
+    /// `None` means the user was never asked, and the answer is no.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speak: Option<bool>,
+    /// Minutes of silence before the engine is stopped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_minutes: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,6 +48,7 @@ impl Default for Config {
             provider: "opencode-go".to_owned(),
             model: None,
             fallback: Some(Fallback { provider: "deepseek".to_owned(), model: None }),
+            voice: None,
         }
     }
 }
@@ -69,6 +84,22 @@ pub enum ConfigError {
 }
 
 impl Config {
+    /// Whether she should speak. Never asked means never, and never silent by
+    /// accident: silence is the safe default while a heavy engine is involved.
+    pub fn speech_enabled(&self) -> bool {
+        self.voice.as_ref().and_then(|voice| voice.speak) == Some(true)
+    }
+
+    /// Records the answer. A rejected question leaves the file untouched.
+    pub fn set_speech(&mut self, enabled: bool) {
+        let voice = self.voice.get_or_insert_with(Voice::default);
+        voice.speak = Some(enabled);
+    }
+
+    pub fn voice_answer(&self) -> Option<bool> {
+        self.voice.as_ref().and_then(|voice| voice.speak)
+    }
+
     /// `$XDG_CONFIG_HOME/nerea/config.toml`, typically `~/.config/nerea/config.toml`.
     pub fn path() -> Result<PathBuf, ConfigError> {
         let dirs = ProjectDirs::from("", "", "nerea").ok_or(ConfigError::NoConfigDir)?;
@@ -142,11 +173,27 @@ mod tests {
     }
 
     #[test]
+    fn speech_is_off_until_the_user_says_yes() {
+        let mut config = Config::default();
+        assert!(!config.speech_enabled(), "never asked means never");
+        assert_eq!(config.voice_answer(), None);
+
+        config.set_speech(true);
+        assert!(config.speech_enabled());
+        assert_eq!(config.voice_answer(), Some(true));
+
+        config.set_speech(false);
+        assert!(!config.speech_enabled());
+        assert_eq!(config.voice_answer(), Some(false), "a no is remembered, not erased");
+    }
+
+    #[test]
     fn round_trips_through_toml() {
         let config = Config {
             provider: "deepseek".to_owned(),
             model: Some("deepseek-v4-pro".to_owned()),
             fallback: None,
+            voice: Some(Voice { speak: Some(false), idle_minutes: None }),
         };
         let text = config.to_toml().expect("encode");
         let parsed: Config = toml::from_str(&text).expect("decode");

@@ -204,6 +204,55 @@ body {
   user-select: text;
 }
 
+/* The voice question: it states the cost before anything is spent. */
+.bubble.question {
+  align-self: stretch;
+  max-width: 100%;
+  background: #121f26;
+  border: 1px solid #2b4a52;
+  border-left: 2px solid var(--accent);
+}
+
+.bubble.question strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 14px;
+}
+
+.bubble.question p {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #b9c9d1;
+}
+
+.question-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.question-actions button {
+  flex: 1;
+  padding: 7px 10px;
+  border: 1px solid #2b4a52;
+  border-radius: 8px;
+  background: #18262e;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.question-actions button.yes {
+  border-color: #1d5f5a;
+  background: #12312f;
+  color: var(--accent);
+}
+
+.question-actions button:hover {
+  border-color: var(--accent);
+}
+
 .bubble.user {
   align-self: flex-end;
   background: #1a3b45;

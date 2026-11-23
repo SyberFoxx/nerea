@@ -54,6 +54,7 @@ let lastPoint = { x: 0, y: 0 };
 let armReset = null;
 let armUpdate = null;
 let updateEntry = null;
+let voiceEntry = null;
 
 function invoke(command, args) {
   return tauri.core.invoke(command, args);
@@ -150,6 +151,7 @@ async function openPanel() {
   stage.dataset.panel = "open";
 
   await loadRecent();
+  await askAboutVoice();
   prompt.focus();
   noteActivity();
 }
@@ -187,6 +189,97 @@ async function refreshUpdate() {
   }
 
   updateEntry.hidden = true;
+}
+
+const VOICE_QUESTION = {
+  title: "¿Querés que hable?",
+  body:
+    "Puedo decir cada respuesta en voz alta, con mi voz clonada. Usa el motor local: " +
+    "unos 3.6 GB de RAM y 2.8 GB de VRAM mientras está encendido. Se levanta solo cuando " +
+    "hace falta y se apaga solo tras quince minutos sin uso. Si decís que no, sigo " +
+    "respondiendo por texto y no gasto nada.",
+};
+
+async function voicePreference() {
+  return invoke("voice_preference").catch(() => null);
+}
+
+/** The question is asked once, in the chat, and the answer is remembered. */
+async function askAboutVoice() {
+  const already = await voicePreference();
+  if (already !== null && already !== undefined) return;
+
+  const card = document.createElement("article");
+  card.className = "bubble question";
+
+  const title = document.createElement("strong");
+  title.textContent = VOICE_QUESTION.title;
+
+  const body = document.createElement("p");
+  body.textContent = VOICE_QUESTION.body;
+
+  const actions = document.createElement("div");
+  actions.className = "question-actions";
+
+  const yes = document.createElement("button");
+  yes.type = "button";
+  yes.className = "yes";
+  yes.textContent = "Sí, que hable";
+
+  const no = document.createElement("button");
+  no.type = "button";
+  no.textContent = "No, solo texto";
+
+  actions.append(yes, no);
+  card.append(title, body, actions);
+  log.append(card);
+  scrollToEnd();
+
+  const answer = async (on) => {
+    await invoke("voice_set_preference", { on }).catch(() => {});
+    card.remove();
+    addBubble(
+      "murmur",
+      on
+        ? "Listo. Hablo en la próxima respuesta; si querés apagarme, está en el menú."
+        : "Listo, sigo por texto. Podés cambiar de idea desde el menú.",
+    );
+    await refreshVoice();
+  };
+
+  yes.addEventListener("click", () => answer(true));
+  no.addEventListener("click", () => answer(false));
+}
+
+async function refreshVoice() {
+  if (!voiceEntry) return;
+
+  const [preference, state] = await Promise.all([
+    voicePreference(),
+    invoke("voice_state").catch(() => null),
+  ]);
+
+  if (preference === null || preference === undefined) {
+    voiceEntry.textContent = "Voz: preguntarme";
+    voiceEntry.disabled = false;
+    return;
+  }
+
+  if (!preference) {
+    voiceEntry.textContent = "Voz: apagada · encender";
+    voiceEntry.disabled = state === "unavailable";
+    return;
+  }
+
+  const labels = {
+    ready: "Voz: encendida · apagar",
+    starting: "Voz: calentando…",
+    off: "Voz: encendida · motor dormido",
+    unavailable: "Voz: sin motor en esta máquina",
+  };
+
+  voiceEntry.textContent = labels[state] ?? `Voz: ${state}`;
+  voiceEntry.disabled = state === "unavailable" || state === "starting";
 }
 
 function hideMenu() {
@@ -323,8 +416,10 @@ async function start() {
   });
 
   updateEntry = menu.querySelector('[data-action="update"]');
+  voiceEntry = menu.querySelector('[data-action="voice"]');
 
   menuButton.addEventListener("click", toggleMenu);
+  menuButton.addEventListener("click", refreshVoice);
   closeButton.addEventListener("click", closePanel);
 
   menu.addEventListener("click", async (event) => {
@@ -352,6 +447,27 @@ async function start() {
     }
 
     hideMenu();
+
+    if (action === "voice") {
+      hideMenu();
+
+      const preference = await voicePreference();
+      if (preference === null || preference === undefined) {
+        await askAboutVoice();
+        return;
+      }
+
+      const next = !preference;
+      await invoke("voice_set_preference", { on: next }).catch(() => {});
+      addBubble(
+        "murmur",
+        next
+          ? "Voz encendida. El motor arranca cuando lo necesite."
+          : "Voz apagada. El motor ya está detenido.",
+      );
+      await refreshVoice();
+      return;
+    }
 
     if (action === "update") {
       if (!armUpdate) {

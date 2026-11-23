@@ -18,7 +18,7 @@ pub use ai::openai_compat::OpenAiCompatProvider;
 pub use ai::presets::{self, ProviderPreset};
 pub use ai::registry::ProviderRegistry;
 pub use ai::{AiProvider, ChatMessage, ChatRequest, ChatResponse, ChatStream, Role, Usage};
-pub use config::{Config, Fallback};
+pub use config::{Config, Fallback, Voice};
 pub use factory::{BuildError, Chain, KeySource, KeyState, PlatformKeys};
 pub use memory::{Memory, MemoryStore};
 pub use phrase::{Phrase, PhraseBank};

@@ -1,4 +1,5 @@
 mod commands;
+mod engine;
 mod state;
 mod update;
 mod voice;
@@ -13,6 +14,14 @@ pub fn run() {
 
             // Development aid: open the panel without a pointer so its layout can
             // be checked from a script. Never set in normal use.
+            // Idle reaper: the engine is expensive and should not sit there all day.
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    engine::reap();
+                }
+            });
+
             // Development aid: say one sentence through the whole voice path.
             if let Ok(text) = std::env::var("NEREA_SAY_TEST") {
                 let handle = app.handle().clone();
@@ -137,6 +146,9 @@ pub fn run() {
             commands::quit,
             commands::update_status,
             commands::update_apply,
+            commands::voice_state,
+            commands::voice_preference,
+            commands::voice_set_preference,
         ])
         .build(tauri::generate_context!());
 
@@ -161,6 +173,7 @@ pub fn run() {
                 // Closing her is closing the app, even with the history hidden.
                 "avatar" => {
                     commands::farewell(handle);
+                    engine::stop();
                     api.prevent_close();
                     handle.exit(0);
                 }
@@ -176,7 +189,10 @@ pub fn run() {
                 }
                 _ => {}
             },
-            tauri::RunEvent::ExitRequested { .. } => commands::farewell(handle),
+            tauri::RunEvent::ExitRequested { .. } => {
+                engine::stop();
+                commands::farewell(handle);
+            }
             _ => {}
         }
     });

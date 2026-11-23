@@ -466,6 +466,34 @@ pub async fn update_apply(app: AppHandle) -> Result<(), String> {
     app.restart()
 }
 
+/// Voice engine state, for the menu.
+#[tauri::command]
+pub fn voice_state() -> crate::engine::State {
+    crate::engine::state()
+}
+
+/// `None` means the question was never answered, and she stays silent.
+#[tauri::command]
+pub fn voice_preference() -> Result<Option<bool>, String> {
+    nerea_core::Config::load()
+        .map(|config| config.voice_answer())
+        .map_err(|err| err.to_string())
+}
+
+/// Records the answer. Turning speech off stops the engine immediately.
+#[tauri::command]
+pub async fn voice_set_preference(on: bool) -> Result<(), String> {
+    let mut config = nerea_core::Config::load().map_err(|err| err.to_string())?;
+    config.set_speech(on);
+    config.save().map_err(|err| err.to_string())?;
+
+    if !on {
+        crate::engine::stop();
+    }
+
+    Ok(())
+}
+
 /// The reply, said in Japanese: one small call, faithful to the Spanish text.
 pub(crate) async fn japanese_line(
     provider: &std::sync::Arc<dyn nerea_core::AiProvider>,
@@ -582,6 +610,15 @@ pub async fn send_message(
     let turn = state.begin_turn(&text).await;
     let request = turn.request;
 
+    // Speaking is opt-in: it costs gigabytes, so it only happens after the user
+    // answered the question, and the engine boots while the model is thinking.
+    let speech = nerea_core::Config::load().map(|config| config.speech_enabled()).unwrap_or(false);
+    if speech {
+        tauri::async_runtime::spawn(async {
+            let _ = crate::engine::ensure().await;
+        });
+    }
+
     if turn.recalled > 0 && turn.oldest_days >= 1 {
         let _ = app.emit(RECALL_EVENT, turn.recalled);
     }
@@ -634,8 +671,9 @@ pub async fn send_message(
     // Her actual voice first; the bank is the fallback when the engine is off.
     let mut spoke_live = false;
 
-    if !cancelled && !reply.trim().is_empty()
+    if speech && !cancelled && !reply.trim().is_empty()
         && let Some(reference) = bank.reference_prompt().map(str::to_owned)
+        && crate::engine::ensure().await.is_ok()
         && let Some(japanese) = japanese_line(&provider, &reply).await
     {
         match crate::voice::speak(&japanese, &reply, &reference).await {

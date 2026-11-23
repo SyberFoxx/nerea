@@ -246,9 +246,28 @@ shape, and every sentence has a new shape, so every sentence paid for a capture.
 sets `CUDAGraph=0`; the graphs only changed the bookkeeping, not the audio. That single line took
 the voice from unusable to live.
 
-### What she says
+### What she says, and only if you asked
 
-Every reply is spoken. The Spanish answer is rendered into one faithful Japanese line (one small
+Speaking costs gigabytes, so it is **opt-in**: the first time you open the panel she asks, with the
+numbers on the table —
+
+> ¿Querés que hable? … unos 3.6 GB de RAM y 2.8 GB de VRAM mientras está encendido. Se levanta solo
+> cuando hace falta y se apaga solo tras quince minutos sin uso.
+
+— and the answer is written to `~/.config/nerea/config.toml`. Until there is an answer, the answer
+is no:
+
+```toml
+[voice]
+speak = true
+```
+
+The engine is an app-managed child process: it boots lazily while the model is writing (so its ~6 s
+start hides inside the reply), is adopted instead of duplicated if a server is already listening,
+stops after `NEREA_TTS_IDLE_SECS` of silence (900 by default), and is killed when the app exits.
+Its log is `/tmp/nerea-tts.log`.
+
+Once enabled, every reply is spoken. The Spanish answer is rendered into one faithful Japanese line (one small
 call, with her terms enforced: `私の竜`, `愛しの竜`, the `あらあら` tic), synthesized locally, and
 played while the panel shows the Spanish subtitle and she holds the `talking` frame. The eleven
 second worst case is a long sentence; typical lines are one to three.
@@ -320,8 +339,8 @@ will ask first, every time; that is the only way a companion with a shell is a g
 
 ## Known gaps
 
-- The voice engine is started by hand and nothing supervises it: if it dies, replies stay silent
-  until it is restarted.
+- If the engine dies mid-session, speech stops until the cooldown retries: the app notices the
+  child is gone but does not restart it within three minutes of a failure.
 - Installed packages do not self-update yet; only a checkout does. That needs signed releases and a
   feed, which is the next step after the CI pipeline settles.
 - Recall is lexical: a question that shares no words with the old turns finds nothing. Embeddings
