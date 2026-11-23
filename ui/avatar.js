@@ -101,6 +101,12 @@ async function start() {
   // Double-click re-seats her on the focused window.
   stage.addEventListener("dblclick", redock);
 
+  // Right-click opens the composer next to her; left drag is left to the WM.
+  stage.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    if (tauri?.core) tauri.core.invoke("open_composer");
+  });
+
   await redock();
   play(DEFAULT_STATE);
 }

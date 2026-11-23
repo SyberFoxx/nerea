@@ -56,7 +56,7 @@ transparent avatar overlay that seats itself on the focused window.
 - [x] State machine driven by the turn lifecycle: thinking → talking → idle, error on failure
 - [x] Docking: seats on the bottom-right corner of the focused window (`hyprctl clients -j`)
 - [x] Placeholder frames with a visible fallback if art fails to load
-- [ ] Composer bubble attached to the avatar, so the chat window becomes optional
+- [x] Composer bubble next to the avatar: right-click her, type, Escape to close
 - [ ] Re-dock automatically when the focused window changes
 - [ ] Real art
 
@@ -71,6 +71,9 @@ the canvas, drop in your own files, nothing else changes:
 
 The pose should be a seated half-body anchored to the bottom edge: the window sits on the corner of
 the active window, so feet and seat line read as "sitting on it".
+
+Talking to her without the chat window: **right-click the avatar**. A bubble and input open next to
+her, the reply streams in there, Escape closes it. Left-drag moves her, double-click re-docks.
 
 On Hyprland the overlay needs a rule to stay pinned across workspaces. Both windows share the
 `nerea-desktop` class, so match on the title:

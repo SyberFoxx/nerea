@@ -126,6 +126,51 @@ pub async fn dock(app: AppHandle) -> Result<Option<DockTarget>, String> {
     Ok(Some(target))
 }
 
+/// Opens the small composer to the left of the avatar, anchored to her feet.
+#[tauri::command]
+pub async fn open_composer(app: AppHandle) -> Result<(), String> {
+    let avatar = app
+        .get_webview_window("avatar")
+        .ok_or_else(|| "avatar window is missing".to_owned())?;
+    let composer = app
+        .get_webview_window("composer")
+        .ok_or_else(|| "composer window is missing".to_owned())?;
+
+    let avatar_pos = avatar.outer_position().map_err(|err| err.to_string())?;
+    let avatar_size = avatar.outer_size().map_err(|err| err.to_string())?;
+    let composer_size = composer.outer_size().map_err(|err| err.to_string())?;
+
+    // GTK reports a real size once the hidden window exists, but fall back to the
+    // configured size (plus its known padding) if the first measurement is empty.
+    let width = if composer_size.width < 100 { 408 } else { composer_size.width as i32 };
+    let height = if composer_size.height < 100 { 348 } else { composer_size.height as i32 };
+
+    // Overlap her body slightly so the bubble reads as coming from her.
+    let mut x = avatar_pos.x - width + 96;
+    let mut y = avatar_pos.y + avatar_size.height as i32 - height;
+
+    if let Some((mon_x, mon_y, mon_w, mon_h)) = monitor_bounds() {
+        x = x.clamp(mon_x, mon_x + mon_w - width);
+        y = y.clamp(mon_y, mon_y + mon_h - height);
+    }
+
+    composer
+        .set_position(PhysicalPosition::new(x, y))
+        .map_err(|err| err.to_string())?;
+    composer.show().map_err(|err| err.to_string())?;
+    composer.set_focus().map_err(|err| err.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn close_composer(app: AppHandle) -> Result<(), String> {
+    let composer = app
+        .get_webview_window("composer")
+        .ok_or_else(|| "composer window is missing".to_owned())?;
+    composer.hide().map_err(|err| err.to_string())
+}
+
 #[derive(Debug, Serialize)]
 pub struct Reply {
     text: String,

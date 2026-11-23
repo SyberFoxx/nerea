@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Chat and avatar windows: core IPC, events and window dragging","local":true,"windows":["main","avatar"],"permissions":["core:default","core:window:allow-start-dragging"]}}
+{"default":{"identifier":"default","description":"Chat and avatar windows: core IPC, events and window dragging","local":true,"windows":["main","avatar","composer"],"permissions":["core:default","core:window:allow-start-dragging"]}}

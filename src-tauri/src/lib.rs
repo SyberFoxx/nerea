@@ -10,6 +10,8 @@ pub fn run() {
             commands::cancel_stream,
             commands::reset_conversation,
             commands::dock,
+            commands::open_composer,
+            commands::close_composer,
         ])
         .run(tauri::generate_context!());
 

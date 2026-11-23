@@ -32,6 +32,20 @@
         "shadow": false,
         "visible": true,
         "title": "nerea-avatar"
+      },
+      {
+        "label": "composer",
+        "url": "composer.html",
+        "title": "nerea-composer",
+        "width": 360,
+        "height": 300,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "visible": false,
+        "shadow": false
       }
     ],
     "security": {

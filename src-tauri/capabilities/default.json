@@ -3,7 +3,8 @@
   "description": "Chat and avatar windows: core IPC, events and window dragging",
   "windows": [
     "main",
-    "avatar"
+    "avatar",
+    "composer"
   ],
   "permissions": [
     "core:default",
