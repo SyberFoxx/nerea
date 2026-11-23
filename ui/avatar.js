@@ -16,8 +16,8 @@ const subtitle = document.getElementById("subtitle");
 
 const IDLE_AFTER_MS = 4 * 60 * 1000;
 const SUBTITLE_TAIL_MS = 500;
-const DOUBLE_PRESS_MS = 360;
-const PRESS_SLOP_PX = 8;
+/** How far the pointer may travel before a press counts as a drag. */
+const PRESS_SLOP_PX = 6;
 const RECENT_MESSAGES = 40;
 
 /** Which frame a phrase-bank category shows while it is spoken. */
@@ -49,8 +49,8 @@ let idleTimer = null;
 let panelOpen = false;
 let busy = false;
 let streamingBubble = null;
-let lastPress = 0;
-let lastPoint = { x: 0, y: 0 };
+let press = null;
+let dragSession = null;
 let armReset = null;
 let armUpdate = null;
 let updateEntry = null;
@@ -142,13 +142,18 @@ async function loadRecent() {
   scrollToEnd();
 }
 
+/** Opens the chat: the window grows around her, she does not move. */
 async function openPanel() {
   if (panelOpen) return;
   panelOpen = true;
 
-  await invoke("open_panel").catch(() => {});
+  // She is hidden while the window grows: GTK reflows the page mid-resize, and
+  // a visible reflow reads as her stretching across the screen.
+  stage.style.visibility = "hidden";
   panel.hidden = false;
   stage.dataset.panel = "open";
+  await invoke("open_panel").catch(() => {});
+  stage.style.visibility = "visible";
 
   await loadRecent();
   await askAboutVoice();
@@ -156,18 +161,17 @@ async function openPanel() {
   noteActivity();
 }
 
+/** Back to her portrait. */
 async function closePanel() {
   if (!panelOpen) return;
   panelOpen = false;
 
   hideMenu();
+  stage.style.visibility = "hidden";
   panel.hidden = true;
   stage.dataset.panel = "closed";
   await invoke("close_panel").catch(() => {});
-}
-
-function togglePanel() {
-  return panelOpen ? closePanel() : openPanel();
+  stage.style.visibility = "visible";
 }
 
 async function refreshUpdate() {
@@ -389,24 +393,86 @@ async function start() {
     else closePanel();
   });
 
-  /* A double press on her toggles the panel; a single press starts the drag
-     the window manager already handles through the drag region. */
+  /* One press on her opens the chat; a press that travels drags her.
+     Wayland forbids a client from moving its own window, and the native drag
+     region grabs the pointer on the first press, which makes every later press
+     unreachable — a click and a drag cannot share that path. So the drag is
+     handed to the compositor while the pointer moves; see src-tauri/src/hypr.rs. */
   grip.addEventListener("mousedown", (event) => {
     if (event.button !== 0) return;
-    const now = performance.now();
-    const far =
-      Math.abs(event.clientX - lastPoint.x) > PRESS_SLOP_PX ||
-      Math.abs(event.clientY - lastPoint.y) > PRESS_SLOP_PX;
+    press = { x: event.clientX, y: event.clientY, dragging: false };
+    noteActivity();
+  });
 
-    if (now - lastPress < DOUBLE_PRESS_MS && !far) {
-      lastPress = 0;
-      togglePanel();
+  window.addEventListener("mousemove", (event) => {
+    if (!press) return;
+
+    if (!press.dragging) {
+      const far =
+        Math.abs(event.clientX - press.x) > PRESS_SLOP_PX ||
+        Math.abs(event.clientY - press.y) > PRESS_SLOP_PX;
+      if (!far) return;
+
+      press.dragging = true;
+      dragSession = { queued: false, inFlight: true };
+      invoke("drag_begin")
+        .catch(() => {})
+        .finally(() => {
+          if (!dragSession) return;
+          dragSession.inFlight = false;
+          followPointer();
+        });
       return;
     }
 
-    lastPress = now;
-    lastPoint = { x: event.clientX, y: event.clientY };
-    noteActivity();
+    followPointer();
+  });
+
+  /** Asks the compositor to put her where the pointer is; one call at a time. */
+  function followPointer() {
+    const session = dragSession;
+    if (!session) return;
+
+    if (session.inFlight) {
+      session.queued = true;
+      return;
+    }
+
+    session.inFlight = true;
+    invoke("drag_step")
+      .catch(() => {})
+      .finally(() => {
+        session.inFlight = false;
+        if (session.queued) {
+          session.queued = false;
+          followPointer();
+        }
+      });
+  }
+
+  window.addEventListener("mouseup", (event) => {
+    if (!press) return;
+    const { dragging } = press;
+    press = null;
+
+    if (dragging) {
+      dragSession = null;
+      invoke("drag_end").catch(() => {});
+      return;
+    }
+
+    // A press without travel opens the chat. It never closes it: two clicks in
+    // a row are only a double click, and the ✕ is the way out.
+    if (event.button === 0) openPanel();
+  });
+
+  // A release outside the window never reaches us: forget the press.
+  window.addEventListener("blur", () => {
+    press = null;
+    if (dragSession) {
+      dragSession = null;
+      invoke("drag_end").catch(() => {});
+    }
   });
 
   grip.addEventListener("contextmenu", (event) => {
@@ -508,17 +574,18 @@ async function start() {
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     if (!menu.hidden) hideMenu();
-    else if (panelOpen) closePanel();
+    else closePanel();
   });
 
   show("idle");
   noteActivity();
   refreshUpdate();
-  await redock();
+
+  await redock().catch(() => {});
   await invoke("greet").catch(() => {});
 }
 
 start().catch((error) => {
+  // Her picture is only replaced when the picture itself is missing.
   console.error("avatar failed to start", error);
-  stage.dataset.fallback = "true";
 });

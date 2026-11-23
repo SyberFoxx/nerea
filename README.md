@@ -14,7 +14,7 @@
   <img src="docs/brand/logo-512.png" alt="Nerea" width="120" />
 </p>
 
-Nerea lives on your desktop as a single portrait. Double-click her and a chat opens attached to
+Nerea lives on your desktop as a single portrait. Click her and a chat opens attached to
 her body; close it and she goes back to being a small figure sitting on the corner of your window.
 Her text is Spanish, her voice is Japanese, and she remembers the conversation after a restart.
 
@@ -49,7 +49,7 @@ to the left, keeping her feet exactly where they were. Nothing else opens on lau
 
 | | |
 |---|---|
-| **Interaction** | double-click her to open the panel, drag her to move, right-click for the menu, `Esc` to close |
+| **Interaction** | click her to open the chat, `✕` to close it, drag her to move, right-click for the menu, `Esc` to close |
 | **Reactions** | 15 single-frame expressions: `idle`, `tease`, `jealous`, `flirt`, `affection`, `laugh`, `surprise`, `complain`, `sleepy` … |
 | **Voice** | a cloned Japanese voice for short lines; Spanish subtitles stay on screen |
 | **Memory** | every turn is appended to disk and reloaded on start; the full log lives in a read-only window |
@@ -364,3 +364,22 @@ will ask first, every time; that is the only way a companion with a shell is a g
 <p align="center">
   <img src="docs/brand/signature.png" alt="ネレア" width="240" />
 </p>
+
+## Making her borderless (Hyprland)
+
+Her window is a character, not a window. Hyprland draws a border and a rounding around every
+window it manages; a rule matched by her title is the exception:
+
+```lua
+hl.window_rule({
+    name        = "nerea-avatar",
+    match       = { title = "^nerea-avatar$" },
+    border_size = 0,
+    rounding    = 0,
+    no_shadow   = true,
+    no_blur     = true,
+    float       = true,
+})
+```
+
+Put it in the file your compositor loads last (~/.config/hypr/user.lua on Ryoku) and reload.

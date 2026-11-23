@@ -9,7 +9,7 @@
   <body>
     <div id="stage" class="stage" data-panel="closed">
       <section id="panel" class="panel" hidden aria-label="Chat con Nerea">
-        <header class="bar">
+        <header class="bar" data-tauri-drag-region>
           <span class="name">nerea</span>
           <button id="menu-button" class="icon" type="button" title="Opciones" aria-expanded="false">⋯</button>
           <button id="close-button" class="icon" type="button" title="Cerrar (Esc)">✕</button>
@@ -36,7 +36,7 @@
         </form>
       </section>
 
-      <div id="grip" class="grip" data-tauri-drag-region>
+      <div id="grip" class="grip">
         <img id="sprite" class="sprite" alt="Nerea" draggable="false" />
       </div>
 

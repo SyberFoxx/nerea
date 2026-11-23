@@ -125,3 +125,19 @@ la imagen debe pesar mes de 1mb me dice, por cierto que la app se auto actualice
   from the web UI, so `git pull --ff-only` refused. Rebased by hand; the updater
   deliberately does not merge on its own.
 - Release `v0.2.1` is built by GitHub Actions on `ubuntu-22.04`.
+
+## L7 — «se mueve por la pantalla al abrirse y el ✕ deja el overlay abierto»
+
+- Síntoma: al abrir el chat, Nerea se desplazaba hasta salirse de la pantalla; al cerrar, quedaba una
+  ventana de 560×560 invisible tapando el escritorio.
+- Causa medida: con `resizable: false` GTK sólo crece (satisface un mínimo nuevo) y nunca encoge
+  (ignora un máximo nuevo). Y Hyprland recoloca una ventana flotante **alrededor de su centro** al
+  cambiar de tamaño, así que anclar leyendo la geometría *después* del resize restaba el delta en
+  cada apertura.
+- Arreglo: `resizable: true` con el tamaño fijado como `min == max` (el pin es lo que la mantiene
+  flotante), colocación calculada **antes** del resize (`pre = destino + (nuevo - viejo) / 2`), y la
+  página oculta (`visibility: hidden`) durante el cambio para que el reflow no la estire.
+- Verificado con geometría del compositor: cerrada `(1742,754) 176×256` esquina `(1918,1010)`;
+  abierta `(1358,450) 560×560` esquina `(1918,1010)`; ✕ devuelve `(1742,754) 176×256`.
+- Descartado: dos ventanas (la segunda no carga CSS/JS de la página), y ventana siempre grande.
+- Aparte: el borde de Hyprland se quitó con una regla por título en `user.lua` del usuario.

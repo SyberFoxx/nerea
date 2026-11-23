@@ -53,8 +53,17 @@ python3 docs/brand/make_brand.py              # regenerate every brand asset
   the window just sat at "cargando…".
 - **Wayland forbids client-side positioning.** `set_position` and `outer_position` are lies; move the
   window with Hyprland's Lua dispatcher: `hyprctl dispatch 'hl.dsp.window.move({ x = 1, y = 2, window = "address:0x…" })'`.
-- **GTK refuses to resize a non-resizable window**, and that same hint is what keeps her floating.
-  Pin the size as `set_min_size == set_max_size`.
+- **GTK resizes a window only in one direction.** A non-resizable window grows to satisfy a new
+  minimum and never shrinks to satisfy a new maximum, so the chat could open and never close. The
+  fix is `resizable: true` with the size pinned as `set_min_size == set_max_size`: the pin still
+  keeps her floating (the compositor reads a fixed size), and GTK recomputes on the bounds change.
+- **A floating window is resized around its centre**, so an anchored resize needs the placement
+  computed *before* the resize and applied in the same breath (`pre_x = x + (w - old_w) / 2`).
+  Reading the geometry back afterwards is what made her walk away from her corner, every time.
+- **The page reflows while the window resizes**: hiding it (`visibility: hidden`) around the swap is
+  what stops the sprite stretching across the screen.
+- **A second Tauri window in the same app did not load the page's CSS or script** (the same URL that
+  works for the first window), so the chat lives in one window that resizes, not two windows.
 - **The history window must hide the avatar**, which is always on top, or she covers the text.
 - **Background tasks need `AppState: Clone`**: its fields are `Arc`s on purpose.
 - **TTS: `CUDAGraph=0` is mandatory.** Without it this GPT-SoVITS build captures a CUDA graph per

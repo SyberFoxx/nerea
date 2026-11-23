@@ -1,5 +1,6 @@
 mod commands;
 mod engine;
+mod hypr;
 mod state;
 mod update;
 mod voice;
@@ -14,6 +15,13 @@ pub fn run() {
 
             // Development aid: open the panel without a pointer so its layout can
             // be checked from a script. Never set in normal use.
+            // She resizes with the chat, which costs her the fixed-size hint that
+            // made the compositor float her by itself.
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+                commands::keep_floating();
+            });
+
             // Idle reaper: the engine is expensive and should not sit there all day.
             tauri::async_runtime::spawn(async move {
                 loop {
@@ -140,6 +148,10 @@ pub fn run() {
             commands::cancel_stream,
             commands::reset_conversation,
             commands::dock,
+            commands::drag_available,
+            commands::drag_begin,
+            commands::drag_step,
+            commands::drag_end,
             commands::greet,
             commands::say,
             commands::say_categories,

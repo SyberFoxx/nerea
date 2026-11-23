@@ -2609,7 +2609,7 @@ dependencies = [
 
 [[package]]
 name = "nerea-cli"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "clap",
  "futures",
@@ -2620,7 +2620,7 @@ dependencies = [
 
 [[package]]
 name = "nerea-core"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2637,7 +2637,7 @@ dependencies = [
 
 [[package]]
 name = "nerea-desktop"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "futures",
  "nerea-core",
