@@ -1,3 +1,7 @@
 /target
 **/*.rs.bk
 .env
+
+# real-person voice reference: personal use only, never committed
+assets/voice/
+/tools/
