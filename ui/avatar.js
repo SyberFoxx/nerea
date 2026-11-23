@@ -142,6 +142,26 @@ async function loadRecent() {
   scrollToEnd();
 }
 
+/**
+ * Resolves once a frame with the current styles has been painted.
+ *
+ * Hiding her and resizing the window are two different processes; without this
+ * gate the move reaches the compositor before the page paints the hide, and she
+ * is seen flying to the corner the resize is about to land on.
+ */
+function painted() {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      resolve();
+    };
+    requestAnimationFrame(() => requestAnimationFrame(finish));
+    setTimeout(finish, 150);
+  });
+}
+
 /** Opens the chat: the window grows around her, she does not move. */
 async function openPanel() {
   if (panelOpen) return;
@@ -152,6 +172,7 @@ async function openPanel() {
   stage.style.visibility = "hidden";
   panel.hidden = false;
   stage.dataset.panel = "open";
+  await painted();
   await invoke("open_panel").catch(() => {});
   stage.style.visibility = "visible";
 
@@ -170,6 +191,7 @@ async function closePanel() {
   stage.style.visibility = "hidden";
   panel.hidden = true;
   stage.dataset.panel = "closed";
+  await painted();
   await invoke("close_panel").catch(() => {});
   stage.style.visibility = "visible";
 }
