@@ -84,12 +84,12 @@
     {"id": "tease_05", "category": "tease", "ja": "あら、自慢の失敗ね。……でも、そういうのも好きよ。", "es": "Ara, qué fracaso tan orgulloso. …Pero eso también me gusta."},
     {"id": "tease_06", "category": "tease", "ja": "あなたって、たまに間抜けね。……そこがいいんだけど。", "es": "Vos a veces sos un tonto. …Pero eso es lo bueno."},
 
-    {"id": "flirt_01", "category": "flirt", "ja": "ねえ、魔法ちょうだい。……キスで。", "es": "Che, dame magia. …Con un beso."},
-    {"id": "flirt_02", "category": "flirt", "ja": "あなたの火、少し分けて。……甘いのがいいわ。", "es": "Pasame un poco de tu fuego. …Dulce, si puede ser."},
-    {"id": "flirt_03", "category": "flirt", "ja": "今日はやけに熱いわね。……竜のせい？", "es": "Hoy estás que ardés. …¿Culpa del dragón?"},
-    {"id": "flirt_04", "category": "flirt", "ja": "こっち見て。……私だけ見て。", "es": "Mirá acá. …Mirá solo a mí."},
-    {"id": "flirt_05", "category": "flirt", "ja": "ふふ、そんなに見ないで。……照れるじゃない。", "es": "Je, no me mires así. …Me da vergüenza."},
-    {"id": "flirt_06", "category": "flirt", "ja": "あなたの匂い、好き。……落ち着くの。", "es": "Me gusta tu olor. …Me calma."},
+    {"id": "flirt_01", "category": "flirt", "ja": "ねえ、こっち来て。……ちょっとだけでいいから。", "es": "Che, vení acá. …Aunque sea un ratito."},
+    {"id": "flirt_02", "category": "flirt", "ja": "今日もかっこいいわね。……ふふ、言わせないでよ。", "es": "Hoy también te ves bien. …Je, no me hagas decirlo."},
+    {"id": "flirt_03", "category": "flirt", "ja": "あなたの隣、落ち着くの。……ずっといたいくらい。", "es": "Al lado tuyo estoy tranquila. …Me quedaría para siempre."},
+    {"id": "flirt_04", "category": "flirt", "ja": "手、貸して。……あったかい。", "es": "Dame la mano. …Qué calentito."},
+    {"id": "flirt_05", "category": "flirt", "ja": "たまには私のこと、褒めてくれてもいいのに。", "es": "De vez en cuando podrías halagarme, ¿sabés?"},
+    {"id": "flirt_06", "category": "flirt", "ja": "ふふ、見てるだけで幸せなのよ。……変かしら。", "es": "Je, con verte ya soy feliz. …¿Es raro?"},
 
     {"id": "jealous_01", "category": "jealous", "ja": "……ねえ、今の女、誰？", "es": "…Che, esa mujer, ¿quién es?"},
     {"id": "jealous_02", "category": "jealous", "ja": "他の女の匂いがするわね。……説明して。", "es": "Te sentís a otra mujer. …Explicame."},
