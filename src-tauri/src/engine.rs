@@ -171,11 +171,11 @@ pub async fn ensure() -> Result<(), String> {
         return Err("the engine failed recently; using the bank".to_owned());
     }
 
-    if !child_alive() {
-        if let Err(err) = spawn() {
-            LAST_FAILURE.store(now, Ordering::Relaxed);
-            return Err(err);
-        }
+    if !child_alive()
+        && let Err(err) = spawn()
+    {
+        LAST_FAILURE.store(now, Ordering::Relaxed);
+        return Err(err);
     }
 
     let deadline = Instant::now() + START_TIMEOUT;
