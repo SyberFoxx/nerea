@@ -325,7 +325,9 @@ body {
   right: 4px;
   bottom: 4px;
   /* Her column, never the panel's: a bubble over the chat is a bubble nobody
-     can read from its clipped tail. */
+     can read from its clipped tail. Border-box, or the padding and the accent
+     border push it past the window edge and swallow the first words. */
+  box-sizing: border-box;
   width: 168px;
   margin: 0;
   padding: 4px 6px;

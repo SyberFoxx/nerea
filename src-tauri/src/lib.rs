@@ -7,6 +7,17 @@ mod voice;
 
 use tauri::{Emitter, Manager};
 
+/// Closing her is closing the app, but never mid-sentence: she says goodbye, the
+/// line stays long enough to be read, and only then does the process leave.
+pub fn farewell_and_exit(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let hold = commands::farewell(&app).unwrap_or(1400) + 900;
+        tokio::time::sleep(std::time::Duration::from_millis(hold)).await;
+        engine::stop();
+        app.exit(0);
+    });
+}
+
 pub fn run() {
     let built = tauri::Builder::default()
         .manage(state::AppState::new())
@@ -190,10 +201,8 @@ pub fn run() {
             } => match label.as_str() {
                 // Closing her is closing the app, even with the history hidden.
                 "avatar" => {
-                    commands::farewell(handle);
-                    engine::stop();
                     api.prevent_close();
-                    handle.exit(0);
+                    farewell_and_exit(handle.clone());
                 }
                 // The history window is a view, not a quittable app window.
                 "history" => {

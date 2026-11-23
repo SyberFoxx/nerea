@@ -351,7 +351,7 @@ pub async fn close_history(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn quit(app: AppHandle) {
-    app.exit(0);
+    crate::farewell_and_exit(app);
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -615,14 +615,15 @@ Opciones: neutral, bromista, carinosa, sorprendida. Respondé solo la palabra, s
 }
 
 /// Plays one goodbye line when the app is closing. Detached audio outlives us.
-pub(crate) fn farewell(app: &AppHandle) {
+/// Says goodbye once, and reports how long the line lasts.
+pub(crate) fn farewell(app: &AppHandle) -> Option<u64> {
     static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     if SAID.swap(true, std::sync::atomic::Ordering::SeqCst) {
-        return;
+        return None;
     }
-    if let Some(bank) = app.try_state::<PhraseBank>() {
-        speak(app, &bank, "goodbye");
-    }
+
+    let bank = app.try_state::<PhraseBank>()?;
+    speak(app, &bank, "goodbye").map(|said| said.duration_ms)
 }
 
 #[tauri::command]
