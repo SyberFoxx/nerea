@@ -202,15 +202,15 @@ async fn send(
     conversation: &Conversation,
     stream: bool,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let messages = conversation.trimmed();
+    let request = conversation.request();
 
     if !stream {
-        let response = provider.chat_completion(&messages).await?;
+        let response = provider.chat_completion(&request).await?;
         println!("{}", response.content);
         return Ok(response.content);
     }
 
-    let mut tokens = provider.stream_chat_completion(&messages).await?;
+    let mut tokens = provider.stream_chat_completion(&request).await?;
     let mut stdout = io::stdout().lock();
     let mut reply = String::new();
 
@@ -285,9 +285,13 @@ fn build_provider(
 
     let base_url = env::var("NEREA_BASE_URL").unwrap_or_else(|_| preset.base_url.to_owned());
     let api_key = resolve_key(preset, store)?;
-    let provider = OpenAiCompatProvider::new(preset.id, base_url, api_key, model)?;
+    let mut transport = OpenAiCompatProvider::new(preset.id, base_url, api_key, model)?;
 
-    Ok(Arc::new(provider))
+    if let Some(header) = preset.session_header {
+        transport = transport.with_session_header(header)?;
+    }
+
+    Ok(Arc::new(transport))
 }
 
 fn require_preset(id: &str) -> Result<&'static ProviderPreset, Box<dyn std::error::Error>> {

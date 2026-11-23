@@ -64,6 +64,15 @@ pub struct ChatResponse {
     pub usage: Option<Usage>,
 }
 
+/// One provider call: the trimmed history plus the conversation it belongs to.
+#[derive(Debug, Clone)]
+pub struct ChatRequest {
+    pub messages: Vec<ChatMessage>,
+    /// Stable per-conversation id. Some gateways use it for routing and prompt
+    /// caching (OpenCode Go expects it in `x-opencode-session`).
+    pub session_id: String,
+}
+
 #[async_trait]
 pub trait AiProvider: Send + Sync {
     /// Stable id: "opencode-go", "deepseek", ...
@@ -72,13 +81,10 @@ pub trait AiProvider: Send + Sync {
     /// Model this instance is bound to.
     fn model(&self) -> &str;
 
-    async fn chat_completion(
-        &self,
-        messages: &[ChatMessage],
-    ) -> Result<ChatResponse, ProviderError>;
+    async fn chat_completion(&self, request: &ChatRequest) -> Result<ChatResponse, ProviderError>;
 
     async fn stream_chat_completion(
         &self,
-        messages: &[ChatMessage],
+        request: &ChatRequest,
     ) -> Result<ChatStream, ProviderError>;
 }

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::{StreamExt, stream};
 
-use super::{AiProvider, ChatMessage, ChatResponse, ChatStream};
+use super::{AiProvider, ChatRequest, ChatResponse, ChatStream};
 use crate::error::ProviderError;
 
 /// Tries `primary` first and fails over to `secondary` on transient errors.
@@ -37,25 +37,22 @@ impl AiProvider for FallbackProvider {
         self.primary.model()
     }
 
-    async fn chat_completion(
-        &self,
-        messages: &[ChatMessage],
-    ) -> Result<ChatResponse, ProviderError> {
-        match self.primary.chat_completion(messages).await {
+    async fn chat_completion(&self, request: &ChatRequest) -> Result<ChatResponse, ProviderError> {
+        match self.primary.chat_completion(request).await {
             Ok(response) => Ok(response),
-            Err(err) if err.is_failover_worthy() => self.secondary.chat_completion(messages).await,
+            Err(err) if err.is_failover_worthy() => self.secondary.chat_completion(request).await,
             Err(err) => Err(err),
         }
     }
 
     async fn stream_chat_completion(
         &self,
-        messages: &[ChatMessage],
+        request: &ChatRequest,
     ) -> Result<ChatStream, ProviderError> {
-        let mut primary = match self.primary.stream_chat_completion(messages).await {
+        let mut primary = match self.primary.stream_chat_completion(request).await {
             Ok(stream) => stream,
             Err(err) if err.is_failover_worthy() => {
-                return self.secondary.stream_chat_completion(messages).await;
+                return self.secondary.stream_chat_completion(request).await;
             }
             Err(err) => return Err(err),
         };
@@ -69,10 +66,10 @@ impl AiProvider for FallbackProvider {
                     return Ok(stream::once(async move { Ok(delta) }).chain(primary).boxed());
                 }
                 Some(Err(err)) if err.is_failover_worthy() => {
-                    return self.secondary.stream_chat_completion(messages).await;
+                    return self.secondary.stream_chat_completion(request).await;
                 }
                 Some(Err(err)) => return Ok(stream::once(async move { Err(err) }).boxed()),
-                None => return self.secondary.stream_chat_completion(messages).await,
+                None => return self.secondary.stream_chat_completion(request).await,
             }
         }
     }
@@ -92,6 +89,13 @@ mod tests {
         stream_reply: StreamReply,
     }
 
+    fn request() -> ChatRequest {
+        ChatRequest {
+            messages: vec![crate::ai::ChatMessage::user("hi")],
+            session_id: "test-session".to_owned(),
+        }
+    }
+
     #[async_trait]
     impl AiProvider for Mock {
         fn id(&self) -> &str {
@@ -104,14 +108,14 @@ mod tests {
 
         async fn chat_completion(
             &self,
-            _messages: &[ChatMessage],
+            _request: &ChatRequest,
         ) -> Result<ChatResponse, ProviderError> {
             (self.reply)()
         }
 
         async fn stream_chat_completion(
             &self,
-            _messages: &[ChatMessage],
+            _request: &ChatRequest,
         ) -> Result<ChatStream, ProviderError> {
             (self.stream_reply)()
         }
@@ -160,12 +164,12 @@ mod tests {
         );
 
         let response = provider
-            .chat_completion(&[ChatMessage::user("hi")])
+            .chat_completion(&request())
             .await
             .expect("fallback answer");
         assert_eq!(response.provider, "secondary");
 
-        let collected = drain(provider.stream_chat_completion(&[ChatMessage::user("hi")]).await.expect("stream")).await;
+        let collected = drain(provider.stream_chat_completion(&request()).await.expect("stream")).await;
         assert_eq!(collected.len(), 1);
         assert_eq!(collected[0].as_ref().expect("token"), "hola");
     }
@@ -178,7 +182,7 @@ mod tests {
         );
 
         let err = provider
-            .chat_completion(&[ChatMessage::user("hi")])
+            .chat_completion(&request())
             .await
             .expect_err("400 must surface");
         assert!(!err.is_failover_worthy());
@@ -192,7 +196,7 @@ mod tests {
         );
 
         let collected =
-            drain(provider.stream_chat_completion(&[ChatMessage::user("hi")]).await.expect("stream")).await;
+            drain(provider.stream_chat_completion(&request()).await.expect("stream")).await;
         assert_eq!(collected.len(), 1);
         assert_eq!(collected[0].as_ref().expect("token"), "hola");
     }
@@ -209,7 +213,7 @@ mod tests {
         );
 
         let collected =
-            drain(provider.stream_chat_completion(&[ChatMessage::user("hi")]).await.expect("stream")).await;
+            drain(provider.stream_chat_completion(&request()).await.expect("stream")).await;
         assert_eq!(collected.len(), 1);
         assert_eq!(collected[0].as_ref().expect("token"), "hola");
     }
@@ -222,7 +226,7 @@ mod tests {
         );
 
         let collected =
-            drain(provider.stream_chat_completion(&[ChatMessage::user("hi")]).await.expect("stream")).await;
+            drain(provider.stream_chat_completion(&request()).await.expect("stream")).await;
         assert_eq!(collected.len(), 1);
         assert_eq!(collected[0].as_ref().expect("token"), "hola");
     }
@@ -238,7 +242,7 @@ mod tests {
         );
 
         let collected =
-            drain(provider.stream_chat_completion(&[ChatMessage::user("hi")]).await.expect("stream")).await;
+            drain(provider.stream_chat_completion(&request()).await.expect("stream")).await;
         assert_eq!(collected.len(), 3);
         assert_eq!(collected[0].as_ref().expect("token"), "par");
         assert_eq!(collected[1].as_ref().expect("token"), "tial");

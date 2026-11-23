@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use futures::StreamExt;
-use nerea_core::{AiProvider, ChatMessage, FallbackProvider, OpenAiCompatProvider};
+use nerea_core::{AiProvider, ChatMessage, ChatRequest, FallbackProvider, OpenAiCompatProvider};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -31,6 +31,13 @@ async fn spawn_mock(code: u16, reason: &'static str, content_type: &'static str,
     format!("http://{addr}")
 }
 
+fn request() -> ChatRequest {
+    ChatRequest {
+        messages: vec![ChatMessage::user("hola")],
+        session_id: "test-session".to_owned(),
+    }
+}
+
 fn provider(id: &str, base_url: String) -> Arc<dyn AiProvider> {
     Arc::new(
         OpenAiCompatProvider::new(id, base_url, "test-key", "test-model")
@@ -51,7 +58,7 @@ async fn a_broken_primary_answers_through_the_secondary() {
 
     let chain = FallbackProvider::new(provider("opencode-go", dead), provider("deepseek", alive));
     let response = chain
-        .chat_completion(&[ChatMessage::user("hola")])
+        .chat_completion(&request())
         .await
         .expect("secondary answer");
 
@@ -77,7 +84,7 @@ async fn streaming_fails_over_when_the_primary_refuses_the_request() {
 
     let chain = FallbackProvider::new(provider("opencode-go", dead), provider("deepseek", alive));
     let mut stream = chain
-        .stream_chat_completion(&[ChatMessage::user("hola")])
+        .stream_chat_completion(&request())
         .await
         .expect("secondary stream");
 
@@ -125,7 +132,7 @@ async fn a_stream_dropped_after_a_role_chunk_fails_over() {
 
     let chain = FallbackProvider::new(provider("opencode-go", broken), provider("deepseek", alive));
     let mut stream = chain
-        .stream_chat_completion(&[ChatMessage::user("hola")])
+        .stream_chat_completion(&request())
         .await
         .expect("secondary stream");
 

@@ -4,8 +4,8 @@ An AI desktop companion for Linux: a Rust core, a Tauri shell, and a static-imag
 Conceptually inspired by [CapriCore](https://github.com/CapriChooms/CapriCore), deliberately not
 its stack — no Electron, no WebGL, no JavaScript in the brain.
 
-**Status: phase 2 of 5 complete.** The core can hold a conversation, persist settings, and survive
-a provider outage. The window comes next.
+**Status: phase 2 of 5 complete, verified against the live API.** The core holds a conversation,
+persists settings, survives a provider outage, and answers through OpenCode Go. The window comes next.
 
 ---
 
@@ -37,6 +37,8 @@ a provider outage. The window comes next.
 - [x] `ChatResponse.provider` makes failover observable to the UI
 - [x] A configured fallback without a key degrades to a warning, not a dead end
 - [x] `nerea config show|path|init` and an interactive `chat` REPL
+- [x] Gateway contract: own `User-Agent` plus a per-conversation `x-opencode-session` header
+- [x] Verified end to end: real streaming and non-streaming calls against `opencode-go`
 
 ### Phase 3 — Tauri shell
 
@@ -87,6 +89,10 @@ exists. That is what keeps the Tauri shell swappable.
 `opencode-go` is pinned on purpose: this project uses exactly one model through it. An unknown
 `--model` fails locally, before any request is billed. DeepSeek direct is the fallback path.
 
+OpenCode Go requires two things beyond an API key: a client-specific `User-Agent`
+(`nerea/<version>`) and a stable session id in `x-opencode-session`, one per conversation. Requests
+without them are rejected with `400`. Both are covered by tests that fail if either header changes.
+
 ## Config
 
 `~/.config/nerea/config.toml` — nothing here is secret.
@@ -115,7 +121,7 @@ cargo run -p nerea-cli -- config show
 ## Verification
 
 ```bash
-cargo test                      # 33 tests, no network required
+cargo test                      # 35 tests, no network required
 cargo clippy --all-targets      # clean
 ```
 
@@ -139,10 +145,12 @@ failover is exercised both with mock providers and with two real transports wire
   tokenizer dependency while the budget is a safety net, not an accounting system.
 - **`nerea-core` does not depend on tokio.** It is generic over runtime; only the harness and tests
   pick one.
+- **Gateways get what they ask for.** OpenCode Go rejects requests without its own `User-Agent` and a
+  stable `x-opencode-session`. `ChatRequest` carries the session id, and the preset decides which
+  header receives it — a provider that ignores it never sees one.
 
 ## Known gaps
 
-- Live calls are still unverified end-to-end: no API key has been used against the real endpoints.
 - `println!` in the CLI panics when stdout is closed (`nerea providers | head -1`).
 - No cap on the SSE buffer if a provider never sends an event boundary.
 - API keys are not zeroized when dropped.

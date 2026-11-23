@@ -6,7 +6,9 @@ use futures::{Stream, StreamExt, stream};
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 
-use super::{AiProvider, ChatMessage, ChatResponse, ChatStream, Usage};
+use reqwest::header::HeaderName;
+
+use super::{AiProvider, ChatMessage, ChatRequest, ChatResponse, ChatStream, Usage};
 use crate::error::ProviderError;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -19,6 +21,7 @@ pub struct OpenAiCompatProvider {
     api_key: String,
     id: String,
     model: String,
+    session_header: Option<HeaderName>,
 }
 
 impl OpenAiCompatProvider {
@@ -28,7 +31,12 @@ impl OpenAiCompatProvider {
         api_key: impl Into<String>,
         model: impl Into<String>,
     ) -> Result<Self, ProviderError> {
-        let client = Client::builder().connect_timeout(CONNECT_TIMEOUT).build()?;
+        // Gateways ask clients to identify themselves instead of posing as a
+        // generic SDK; some reject requests without it.
+        let client = Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .user_agent(concat!("nerea/", env!("CARGO_PKG_VERSION")))
+            .build()?;
 
         Ok(Self {
             client,
@@ -36,7 +44,28 @@ impl OpenAiCompatProvider {
             api_key: api_key.into(),
             id: id.into(),
             model: model.into(),
+            session_header: None,
         })
+    }
+
+    /// Some gateways reject requests without a per-conversation session id.
+    pub fn with_session_header(mut self, header: &'static str) -> Result<Self, ProviderError> {
+        let name = HeaderName::try_from(header)
+            .map_err(|_| ProviderError::Protocol(format!("invalid session header `{header}`")))?;
+        self.session_header = Some(name);
+        Ok(self)
+    }
+
+    fn request_builder(&self, session_id: &str) -> reqwest::RequestBuilder {
+        let builder = self
+            .client
+            .post(self.endpoint())
+            .bearer_auth(&self.api_key);
+
+        match &self.session_header {
+            Some(header) => builder.header(header, session_id),
+            None => builder,
+        }
     }
 
     fn endpoint(&self) -> String {
@@ -45,7 +74,7 @@ impl OpenAiCompatProvider {
 }
 
 #[derive(Serialize)]
-struct ChatRequest<'a> {
+struct ChatBody<'a> {
     model: &'a str,
     messages: &'a [ChatMessage],
     stream: bool,
@@ -129,16 +158,15 @@ impl AiProvider for OpenAiCompatProvider {
         &self.model
     }
 
-    async fn chat_completion(
-        &self,
-        messages: &[ChatMessage],
-    ) -> Result<ChatResponse, ProviderError> {
-        let body = ChatRequest { model: &self.model, messages, stream: false };
+    async fn chat_completion(&self, request: &ChatRequest) -> Result<ChatResponse, ProviderError> {
+        let body = ChatBody {
+            model: &self.model,
+            messages: &request.messages,
+            stream: false,
+        };
 
         let response = self
-            .client
-            .post(self.endpoint())
-            .bearer_auth(&self.api_key)
+            .request_builder(&request.session_id)
             .timeout(REQUEST_TIMEOUT)
             .json(&body)
             .send()
@@ -173,15 +201,17 @@ impl AiProvider for OpenAiCompatProvider {
 
     async fn stream_chat_completion(
         &self,
-        messages: &[ChatMessage],
+        request: &ChatRequest,
     ) -> Result<ChatStream, ProviderError> {
-        let body = ChatRequest { model: &self.model, messages, stream: true };
+        let body = ChatBody {
+            model: &self.model,
+            messages: &request.messages,
+            stream: true,
+        };
 
         // No total timeout here: an SSE body can legitimately stay open for minutes.
         let response = self
-            .client
-            .post(self.endpoint())
-            .bearer_auth(&self.api_key)
+            .request_builder(&request.session_id)
             .json(&body)
             .send()
             .await?;
@@ -327,6 +357,13 @@ mod tests {
         format!("http://{addr}")
     }
 
+    fn request() -> ChatRequest {
+        ChatRequest {
+            messages: vec![ChatMessage::user("hi")],
+            session_id: "test-session".to_owned(),
+        }
+    }
+
     fn provider(base_url: String) -> OpenAiCompatProvider {
         OpenAiCompatProvider::new("mock", base_url, "test-key", "mock-model").expect("provider")
     }
@@ -337,7 +374,7 @@ mod tests {
         let url = spawn_mock("application/json", vec![body.to_owned()]).await;
 
         let response = provider(url)
-            .chat_completion(&[ChatMessage::user("hi")])
+            .chat_completion(&request())
             .await
             .expect("call");
 
@@ -364,7 +401,7 @@ mod tests {
         let url = spawn_mock("text/event-stream", parts).await;
 
         let mut stream = provider(url)
-            .stream_chat_completion(&[ChatMessage::user("hi")])
+            .stream_chat_completion(&request())
             .await
             .expect("stream");
 
@@ -391,6 +428,73 @@ mod tests {
             }
             other => panic!("unexpected error: {other:?}"),
         }
+    }
+
+    /// Rejects the request unless the gateway contract headers are present.
+    async fn spawn_header_guard(session: &'static str, expect_session: bool) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind mock listener");
+        let addr = listener.local_addr().expect("mock addr");
+
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let mut buffer = vec![0u8; 8192];
+            let read = socket.read(&mut buffer).await.unwrap_or(0);
+            let head = String::from_utf8_lossy(&buffer[..read]).to_lowercase();
+
+            let has_session = head.contains(&format!("x-opencode-session: {session}"));
+            let has_agent = head.contains("user-agent: nerea/");
+            let ok = has_agent && has_session == expect_session;
+
+            let (code, reason, body) = if ok {
+                (200, "OK", r#"{"choices":[{"message":{"content":"ok"}}]}"#.to_owned())
+            } else {
+                (400, "Bad Request", r#"{"error":{"message":"bad headers"}}"#.to_owned())
+            };
+
+            let head = format!(
+                "HTTP/1.1 {code} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = socket.write_all(head.as_bytes()).await;
+            let _ = socket.write_all(body.as_bytes()).await;
+            let _ = socket.shutdown().await;
+        });
+
+        format!("http://{addr}")
+    }
+
+    #[tokio::test]
+    async fn sends_the_user_agent_and_session_header_the_gateway_requires() {
+        let url = spawn_header_guard("sess-42", true).await;
+        let provider = provider(url)
+            .with_session_header("x-opencode-session")
+            .expect("valid header");
+
+        let response = provider
+            .chat_completion(&ChatRequest {
+                messages: vec![ChatMessage::user("hi")],
+                session_id: "sess-42".to_owned(),
+            })
+            .await
+            .expect("gateway accepted the request");
+
+        assert_eq!(response.content, "ok");
+    }
+
+    #[tokio::test]
+    async fn does_not_leak_the_session_id_to_providers_that_ignore_it() {
+        let url = spawn_header_guard("sess-42", false).await;
+
+        // DeepSeek-style: no session header configured, so it must not be sent.
+        let response = provider(url)
+            .chat_completion(&ChatRequest {
+                messages: vec![ChatMessage::user("hi")],
+                session_id: "sess-42".to_owned(),
+            })
+            .await
+            .expect("request without session header");
+
+        assert_eq!(response.content, "ok");
     }
 
     #[test]

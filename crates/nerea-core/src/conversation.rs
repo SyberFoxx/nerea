@@ -1,4 +1,6 @@
-use crate::ai::ChatMessage;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::ai::{ChatMessage, ChatRequest};
 
 /// Rough characters-per-token ratio. Tokenizers differ per model, so this is a
 /// cheap lower bound with margin instead of a per-provider dependency.
@@ -13,12 +15,27 @@ pub fn estimate_tokens(text: &str) -> usize {
 pub struct Conversation {
     system_prompt: String,
     budget_tokens: usize,
+    session_id: String,
     messages: Vec<ChatMessage>,
+}
+
+/// Opaque to the provider; only needs to be stable for one conversation.
+fn new_session_id() -> String {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or_default();
+    format!("{}-{nanos:x}", std::process::id())
 }
 
 impl Conversation {
     pub fn new(system_prompt: impl Into<String>, budget_tokens: usize) -> Self {
-        Self { system_prompt: system_prompt.into(), budget_tokens, messages: Vec::new() }
+        Self {
+            system_prompt: system_prompt.into(),
+            budget_tokens,
+            session_id: new_session_id(),
+            messages: Vec::new(),
+        }
     }
 
     pub fn push_user(&mut self, content: impl Into<String>) {
@@ -31,6 +48,18 @@ impl Conversation {
 
     pub fn clear(&mut self) {
         self.messages.clear();
+    }
+
+    pub fn session_id(&self) -> &str {
+        &self.session_id
+    }
+
+    /// The prompt to send: trimmed history plus this conversation's session id.
+    pub fn request(&self) -> ChatRequest {
+        ChatRequest {
+            messages: self.trimmed(),
+            session_id: self.session_id.clone(),
+        }
     }
 
     pub fn len(&self) -> usize {

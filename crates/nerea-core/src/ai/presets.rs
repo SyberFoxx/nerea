@@ -11,6 +11,8 @@ pub struct ProviderPreset {
     pub env_var: &'static str,
     pub default_model: &'static str,
     pub models: &'static [&'static str],
+    /// Header the gateway expects a per-conversation id in, if any.
+    pub session_header: Option<&'static str>,
 }
 
 pub const PRESETS: &[ProviderPreset] = &[
@@ -22,6 +24,8 @@ pub const PRESETS: &[ProviderPreset] = &[
         default_model: "deepseek-v4.1-flash",
         // Pinned on purpose: OpenCode Go is only used for this model.
         models: &["deepseek-v4.1-flash"],
+        // Required by OpenCode Go: requests without it are rejected with 400.
+        session_header: Some("x-opencode-session"),
     },
     ProviderPreset {
         id: "deepseek",
@@ -30,6 +34,7 @@ pub const PRESETS: &[ProviderPreset] = &[
         env_var: "DEEPSEEK_API_KEY",
         default_model: "deepseek-v4-flash",
         models: &["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-flash"],
+        session_header: None,
     },
 ];
 
