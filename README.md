@@ -110,11 +110,25 @@ cargo run -p nerea-cli -- key set opencode-go     # or export OPENCODE_API_KEY
 cargo run -p nerea-cli -- providers               # providers, models, key state
 ```
 
-### Packaged build
+### Updating
+
+The panel menu offers **Actualizar (N)** whenever the checkout is behind its upstream. One press runs
+`git pull --ff-only`, rebuilds the release binary and restarts into it. A dirty working tree, a
+diverged branch or a failed build leaves everything as it was and says why in the chat log.
 
 ```bash
-npx @tauri-apps/cli@^2 build --bundles appimage   # the AppImage
-packaging/package.sh                              # .deb + portable tarball + copies the AppImage
+NEREA_AUTO_UPDATE=1 cargo run -p nerea-desktop   # the same path, headless, for testing
+```
+
+### Packaged build
+
+Packaging happens in CI: pushing a `v*` tag runs `.github/workflows/release.yml` on `ubuntu-22.04`,
+which builds the binary, bundles the AppImage and assembles the `.deb` and the tarball. Building
+there instead of on a rolling host is what makes the artifacts run on older LTS releases.
+
+```bash
+npx @tauri-apps/cli@^2 build --bundles appimage   # local AppImage only
+packaging/package.sh                              # local .deb + tarball, same script CI runs
 ```
 
 | artifact | who it is for | floor |
@@ -229,7 +243,8 @@ cargo clippy --all-targets -- -D warnings
 | version | what it is |
 |---|---|
 | `0.1.0` | core providers, conversation budget, failover, keyring, CLI harness |
-| **`0.2.0`** | one window with the attached panel, durable memory, read-only history, boot/resume lines, brand |
+| `0.2.0` | one window with the attached panel, durable memory, read-only history, boot/resume lines, brand |
+| **`0.2.1`** | self-update from the checkout and packaging moved to CI |
 | `0.3.0` | live voice for replies: faithful Japanese line, TTS, `talking` frame, subtitle |
 | `0.4.0` | PC control: files, windows, commands — each action behind an explicit confirmation |
 
@@ -260,6 +275,8 @@ will ask first, every time; that is the only way a companion with a shell is a g
 ## Known gaps
 
 - Live speech for replies is not wired: only bank lines speak.
+- Installed packages do not self-update yet; only a checkout does. That needs signed releases and a
+  feed, which is the next step after the CI pipeline settles.
 - No turn summarization, so very old turns fall out of the prompt (they stay in the transcript).
 - One turn in flight at a time; the input is disabled while streaming.
 - The frontend has no automated test — it is verified by opening the window.

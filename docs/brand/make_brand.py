@@ -503,10 +503,10 @@ def main() -> None:
     logo.resize((512, 512), Image.LANCZOS).save(HERE / "logo-512.png")
 
     build_banner().save(HERE / "banner.png")
-    build_social().save(HERE / "social.png")
+    build_social().save(HERE / "social.jpg", quality=92, subsampling=0, optimize=True, progressive=True)
     build_signature().save(HERE / "signature.png")
 
-    for name in ("logo.png", "logo-512.png", "banner.png", "social.png", "signature.png"):
+    for name in ("logo.png", "logo-512.png", "banner.png", "social.jpg", "signature.png"):
         path = HERE / name
         print(f"{name:<16} {path.stat().st_size / 1024:7.0f} KB")
 

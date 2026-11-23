@@ -13,7 +13,7 @@ python3 docs/brand/make_brand.py     # needs pillow + numpy
 | `logo.png` | 1024 × 1024 | repository avatar, app icon source |
 | `logo-512.png` | 512 × 512 | README header, anywhere a square is needed |
 | `banner.png` | 1600 × 600 | the top of the README |
-| `social.png` | 1280 × 640 | GitHub → Settings → Social preview (uploaded by hand: the API cannot set it) |
+| `social.jpg` | 1280 × 640, 250 KB | GitHub → Settings → Social preview (uploaded by hand: the API cannot set it, and it refuses anything over 1 MB) |
 | `signature.png` | 760 × 220, transparent | the foot of the README |
 | `screenshot-chat.png` | 584 × 584 | the chat panel, seeded with a demo conversation |
 
