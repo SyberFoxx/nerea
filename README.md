@@ -171,6 +171,40 @@ not load against the CUDA 12.8 torch build required by the RTX 50 series; the la
 Design intent: the model writes Spanish, the reply is translated to one short Japanese line, and
 that line is spoken with the cloned voice. Text in Spanish, voice in Japanese.
 
+### Running the engine
+
+```bash
+tools/voice/.venv/bin/python tools/voice/serve_tts.py     # 127.0.0.1:9880, ~3.6 GB RAM + 2.8 GB VRAM
+ss -ltnp | grep 9880                                       # find it
+kill <pid>                                                 # stop it
+```
+
+`NEREA_TTS_PORT` and `NEREA_TTS_CONFIG` override the port and the weights config
+(`tts_infer.yaml` is fp16, `tts_fp32.yaml` is fp32 and was measured slower).
+
+### Measured latency (RTX 5060, 8 GB)
+
+| request | audio | wall time |
+|---|---|---|
+| 3 characters | 0.5 s | 15.6 s |
+| 26 characters | 5.0 s | 31.9 s |
+| fp32 instead of fp16 | same | ~2x slower |
+
+The synthesis itself is roughly 3.5x realtime, but a **fixed ~15 s per request** dominates even for
+three characters. That points at per-request work — model reload or reference-feature recompute —
+rather than the autoregressive loop. Instrument `api_v2.py`'s `tts_handle` and cache the reference
+features before wiring audio into the app.
+
+### Disk footprint
+
+| path | size | needed for |
+|---|---|---|
+| `tools/voice/.venv` | 7.9 GB | running the engine |
+| `tools/voice/gpt-sovits` (weights) | 4.7 GB | running the engine |
+| `assets/voice` | 36 MB | reference clip and samples |
+
+Deleting `tools/voice` frees about 12.6 GB. Nerea keeps working; voice simply stops.
+
 ## Verification
 
 ```bash
