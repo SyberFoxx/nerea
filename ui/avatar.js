@@ -51,7 +51,6 @@ let busy = false;
 let streamingBubble = null;
 let press = null;
 let dragSession = null;
-let closing = false;
 let armReset = null;
 let armUpdate = null;
 let updateEntry = null;
@@ -181,21 +180,12 @@ async function openPanel() {
   noteActivity();
 }
 
-/** How long she gets to be read before the window closes. */
-const FAREWELL_MS = 2600;
-
-/** Back to her portrait, after she has said goodbye and been read. */
+/** Back to her portrait. Closing the chat is not leaving, so nothing is said. */
 async function closePanel() {
-  if (!panelOpen || closing) return;
+  if (!panelOpen) return;
   panelOpen = false;
-  closing = true;
 
   hideMenu();
-
-  // Closing the chat is not the same as leaving: she says goodbye, the line
-  // stays on screen, and only then does the window go back to her portrait.
-  await invoke("say", { category: "goodbye" }).catch(() => {});
-  await new Promise((resolve) => setTimeout(resolve, FAREWELL_MS));
 
   stage.style.visibility = "hidden";
   panel.hidden = true;
@@ -203,8 +193,6 @@ async function closePanel() {
   await painted();
   await invoke("close_panel").catch(() => {});
   stage.style.visibility = "visible";
-
-  closing = false;
 }
 
 async function refreshUpdate() {
