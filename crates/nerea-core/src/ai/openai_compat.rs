@@ -159,6 +159,7 @@ impl AiProvider for OpenAiCompatProvider {
         let CompletionChoice { message, finish_reason } = choice;
 
         Ok(ChatResponse {
+            provider: self.id.clone(),
             content: message.and_then(|msg| msg.content).unwrap_or_default(),
             model: if completion.model.is_empty() {
                 self.model.clone()

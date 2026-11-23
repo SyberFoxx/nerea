@@ -1,3 +1,4 @@
+pub mod fallback;
 pub mod openai_compat;
 pub mod presets;
 pub mod registry;
@@ -55,6 +56,8 @@ pub struct Usage {
 /// `Serialize` because it crosses the IPC boundary as-is.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatResponse {
+    /// Which provider produced this answer; makes failover observable.
+    pub provider: String,
     pub content: String,
     pub model: String,
     pub finish_reason: Option<String>,
