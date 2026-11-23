@@ -9,6 +9,7 @@ pub fn run() {
             commands::send_message,
             commands::cancel_stream,
             commands::reset_conversation,
+            commands::dock,
         ])
         .run(tauri::generate_context!());
 

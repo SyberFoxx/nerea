@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 380" width="260" height="380">
+  <!-- Placeholder art. Replace these frames, keep the canvas and the seated pose. -->
+  <g>
+    <path d="M46 380 C46 268 84 208 130 208 C176 208 214 268 214 380 Z" fill="#1f2b33"/>
+    <rect x="112" y="150" width="36" height="62" rx="12" fill="#2b3a44"/>
+    <circle cx="130" cy="98" r="50" fill="#2b3a44"/>
+    <path d="M80 96 C80 52 104 34 130 34 C158 34 180 54 180 96 C168 78 150 70 130 70 C110 70 92 78 80 96 Z" fill="#26363f"/>
+    <rect x="103" y="88" width="14" height="7" rx="3.5" fill="#2ec4b6"/>
+    <rect x="143" y="88" width="14" height="7" rx="3.5" fill="#2ec4b6"/>
+    <rect x="119" y="124" width="22" height="4" rx="2" fill="#2ec4b6"/>
+    <circle cx="206" cy="66" r="3" fill="#2ec4b6"/><circle cx="220" cy="50" r="4" fill="#2ec4b6"/>
+    <path d="M46 380 L214 380" stroke="#2ec4b6" stroke-width="3" stroke-linecap="round"/>
+  </g>
+</svg>

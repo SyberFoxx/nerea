@@ -1,0 +1,10 @@
+{
+  "canvas": { "width": 260, "height": 380 },
+  "note": "Placeholder frames. Drop real art here and keep the state names.",
+  "states": {
+    "idle": { "fps": 1, "frames": ["avatar/idle-0.svg"] },
+    "thinking": { "fps": 2, "frames": ["avatar/thinking-0.svg", "avatar/thinking-1.svg"] },
+    "talking": { "fps": 6, "frames": ["avatar/talking-0.svg", "avatar/talking-1.svg"] },
+    "error": { "fps": 1, "frames": ["avatar/error-0.svg"] }
+  }
+}

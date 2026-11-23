@@ -4,8 +4,8 @@ An AI desktop companion for Linux: a Rust core, a Tauri shell, and a static-imag
 Conceptually inspired by [CapriCore](https://github.com/CapriChooms/CapriCore), deliberately not
 its stack — no Electron, no WebGL, no JavaScript in the brain.
 
-**Status: phase 3 of 5 complete.** `cargo run -p nerea-desktop` opens the window: streamed chat
-against the live API, with an avatar slot waiting for phase 4.
+**Status: phase 4 in progress.** `cargo run -p nerea-desktop` opens the chat window plus a small
+transparent avatar overlay that seats itself on the focused window.
 
 ---
 
@@ -16,7 +16,7 @@ against the live API, with an avatar slot waiting for phase 4.
 | 1 | Core + providers | `done` | Workspace, `AiProvider` trait, shared OpenAI-compatible transport, keyring, CLI harness |
 | 2 | Conversation | `done` | Turn history with a prompt budget, config file, provider failover |
 | 3 | Tauri shell | `done` | Chat window + avatar panel, IPC commands, streaming events |
-| 4 | Static-image avatar | `next` | Frame manifest and a state machine (`idle` / `thinking` / `talking` / `error`) |
+| 4 | Static-image avatar | `wip` | Overlay window, frame manifest, state machine, docking |
 | 5 | Memory | `pending` | SQLite turn store plus rolling summaries |
 
 ### Phase 1 — Core + providers
@@ -51,9 +51,36 @@ against the live API, with an avatar slot waiting for phase 4.
 
 ### Phase 4 — Static-image avatar
 
-- [ ] Frame manifest (`idle`, `thinking`, `talking`, `error` → frame lists)
-- [ ] State machine driven by the turn lifecycle, not by timers alone
-- [ ] Placeholder art until the real designs land
+- [x] Second window: transparent, undecorated, always on top, 176 × 256
+- [x] Frame manifest (`idle`, `thinking`, `talking`, `error` → frame lists)
+- [x] State machine driven by the turn lifecycle: thinking → talking → idle, error on failure
+- [x] Docking: seats on the bottom-right corner of the focused window (`hyprctl clients -j`)
+- [x] Placeholder frames with a visible fallback if art fails to load
+- [ ] Composer bubble attached to the avatar, so the chat window becomes optional
+- [ ] Re-dock automatically when the focused window changes
+- [ ] Real art
+
+## Avatar art
+
+Frames live in `ui/avatar/` and are listed in `ui/avatar/manifest.json`. Keep the state names and
+the canvas, drop in your own files, nothing else changes:
+
+```json
+"talking": { "fps": 6, "frames": ["avatar/talking-0.png", "avatar/talking-1.png"] }
+```
+
+The pose should be a seated half-body anchored to the bottom edge: the window sits on the corner of
+the active window, so feet and seat line read as "sitting on it".
+
+On Hyprland the overlay needs a rule to stay pinned across workspaces. Both windows share the
+`nerea-desktop` class, so match on the title:
+
+```conf
+windowrulev2 = pin,title:^(nerea-avatar)$
+windowrulev2 = noborder,title:^(nerea-avatar)$
+windowrulev2 = noshadow,title:^(nerea-avatar)$
+windowrulev2 = noanim,title:^(nerea-avatar)$
+```
 
 ### Phase 5 — Memory
 

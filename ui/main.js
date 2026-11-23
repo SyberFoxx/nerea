@@ -99,6 +99,8 @@ async function start() {
 
   stopButton.addEventListener("click", () => tauri.core.invoke("cancel_stream"));
 
+  document.getElementById("dock").addEventListener("click", () => tauri.core.invoke("dock"));
+
   resetButton.addEventListener("click", async () => {
     if (busy) return;
     await tauri.core.invoke("reset_conversation");
