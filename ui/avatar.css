@@ -49,3 +49,23 @@ body {
   align-self: end;
   justify-self: center;
 }
+
+/* Score of the line she just said, so a spontaneous remark is readable. */
+.subtitle {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 4px;
+  margin: 0;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: rgba(13, 19, 23, 0.88);
+  border-left: 2px solid #2ec4b6;
+  color: #e3ebf0;
+  font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+  font-size: 10.5px;
+  line-height: 1.35;
+  max-height: 46px;
+  overflow: hidden;
+  pointer-events: none;
+}

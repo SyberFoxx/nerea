@@ -58,7 +58,19 @@ transparent avatar overlay that seats itself on the focused window.
 - [x] Placeholder frames with a visible fallback if art fails to load
 - [x] Composer bubble next to the avatar: right-click her, type, Escape to close
 - [ ] Re-dock automatically when the focused window changes
-- [ ] Real art
+- [x] Real art: 15 single-frame reactions from the reference sheet
+- [x] Phrase bank wired: `say` command picks a line, plays the WAV and emits `nerea://say`
+- [x] The avatar window shows the matching frame plus the Spanish subtitle
+- [x] Triggers today: app start, 4 minutes idle, provider failure
+
+## Avatar wiring
+
+`ui/avatar/manifest.json` maps a state to one PNG. The avatar window listens on `nerea://state`
+(turn lifecycle) and `nerea://say` (a spoken bank line). The bank is embedded in `nerea-core`; the
+WAVs are machine-local and read from `assets/voice/bank` (override with `NEREA_BANK_DIR`).
+
+Spoken lines today: **app start**, **4 minutes idle**, **provider failure**. The rest of the
+categories are already rendered and waiting for their triggers.
 
 ## Avatar art
 

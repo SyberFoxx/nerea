@@ -1,10 +1,21 @@
 {
-  "canvas": { "width": 260, "height": 380 },
-  "note": "Placeholder frames. Drop real art here and keep the state names.",
+  "canvas": { "width": 832, "height": 1248 },
+  "note": "One static frame per state. Same canvas and seated crop in every file.",
   "states": {
-    "idle": { "fps": 1, "frames": ["avatar/idle-0.svg"] },
-    "thinking": { "fps": 2, "frames": ["avatar/thinking-0.svg", "avatar/thinking-1.svg"] },
-    "talking": { "fps": 6, "frames": ["avatar/talking-0.svg", "avatar/talking-1.svg"] },
-    "error": { "fps": 1, "frames": ["avatar/error-0.svg"] }
+    "idle": "avatar/idle.png",
+    "hello": "avatar/hello.png",
+    "thinking": "avatar/thinking.png",
+    "talking": "avatar/talking.png",
+    "agree": "avatar/agree.png",
+    "surprise": "avatar/surprise.png",
+    "laugh": "avatar/laugh.png",
+    "tease": "avatar/tease.png",
+    "flirt": "avatar/flirt.png",
+    "jealous": "avatar/jealous.png",
+    "affection": "avatar/affection.png",
+    "back": "avatar/back.png",
+    "goodbye": "avatar/goodbye.png",
+    "complain": "avatar/complain.png",
+    "sleepy": "avatar/sleepy.png"
   }
 }

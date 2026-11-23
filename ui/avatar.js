@@ -1,16 +1,73 @@
 const sprite = document.getElementById("sprite");
 const stage = document.getElementById("stage");
+const subtitle = document.getElementById("subtitle");
 
 const tauri = window.__TAURI__;
-const DEFAULT_STATE = "idle";
-const ERROR_HOLD_MS = 1800;
+const IDLE_AFTER_MS = 4 * 60 * 1000;
+const SUBTITLE_TAIL_MS = 500;
 
-let manifest = null;
+/** Which frame a phrase-bank category shows while it is spoken. */
+const CATEGORY_FRAME = {
+  boot: "hello",
+  timeofday: "hello",
+  idle: "idle",
+  back: "back",
+  thinking: "thinking",
+  micro: "agree",
+  agree: "agree",
+  surprise: "surprise",
+  laugh: "laugh",
+  tease: "tease",
+  flirt: "flirt",
+  jealous: "jealous",
+  affection: "affection",
+  complain: "complain",
+  goodbye: "goodbye",
+};
+
 let frames = new Map();
-let stateName = DEFAULT_STATE;
-let frameIndex = 0;
-let timer = null;
-let errorTimer = null;
+let current = "idle";
+let turnFrame = "idle";
+let speaking = null;
+let speakingTimer = null;
+let idleTimer = null;
+
+function show(name) {
+  const source = frames.get(name) ?? frames.get("idle");
+  if (!source) return;
+  current = name;
+  if (sprite.src !== source) sprite.src = source;
+  sprite.dataset.state = name;
+}
+
+function endSpeech() {
+  clearTimeout(speakingTimer);
+  speakingTimer = null;
+  speaking = null;
+  subtitle.hidden = true;
+  show(turnFrame);
+}
+
+function playLine(line) {
+  if (!line) return;
+
+  clearTimeout(speakingTimer);
+  speaking = line.id;
+
+  show(CATEGORY_FRAME[line.category] ?? "idle");
+  subtitle.textContent = line.es;
+  subtitle.hidden = false;
+
+  const hold = Math.min((line.duration_ms ?? 2000) + SUBTITLE_TAIL_MS, 12_000);
+  speakingTimer = setTimeout(endSpeech, hold);
+}
+
+function noteActivity() {
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => {
+    if (!speaking && tauri?.core) tauri.core.invoke("say", { category: "idle" });
+  }, IDLE_AFTER_MS);
+}
 
 async function loadManifest() {
   const response = await fetch("avatar/manifest.json");
@@ -18,97 +75,51 @@ async function loadManifest() {
   return response.json();
 }
 
-function preload(states) {
-  const loaded = new Map();
-  for (const [name, clip] of Object.entries(states)) {
-    loaded.set(
-      name,
-      clip.frames.map((src) => {
-        const image = new Image();
-        image.src = src;
-        return image;
-      }),
-    );
-  }
-  return loaded;
-}
-
-function paint() {
-  const clip = frames.get(stateName) ?? frames.get(DEFAULT_STATE);
-  if (!clip?.length) return;
-  frameIndex %= clip.length;
-  sprite.src = clip[frameIndex].src;
-  sprite.dataset.state = stateName;
-}
-
-function stop() {
-  if (timer) clearInterval(timer);
-  timer = null;
-}
-
-function play(name) {
-  const next = frames.has(name) ? name : DEFAULT_STATE;
-  if (next === stateName && timer) return;
-
-  stateName = next;
-  frameIndex = 0;
-  stop();
-
-  const clip = frames.get(next);
-  if (!clip?.length) return;
-
-  paint();
-  const fps = Math.max(1, manifest.states[next]?.fps ?? 1);
-  if (clip.length > 1) {
-    timer = setInterval(() => {
-      frameIndex = (frameIndex + 1) % clip.length;
-      paint();
-    }, Math.round(1000 / fps));
-  }
-}
-
-function flashError() {
-  play("error");
-  if (errorTimer) clearTimeout(errorTimer);
-  errorTimer = setTimeout(() => play(DEFAULT_STATE), ERROR_HOLD_MS);
-}
-
 async function redock() {
   if (!tauri?.core) return;
   try {
     await tauri.core.invoke("dock");
   } catch {
-    /* no hyprctl: stay where the window manager put us */
+    /* no hyprctl on this compositor: stay where the window manager put us */
   }
 }
 
 async function start() {
-  manifest = await loadManifest();
-  frames = preload(manifest.states);
-
-  if (tauri?.event) {
-    await tauri.event.listen("nerea://state", (event) => {
-      const next = event.payload.state;
-      if (next === "error") flashError();
-      else play(next);
-    });
-  }
+  const manifest = await loadManifest();
+  frames = new Map(Object.entries(manifest.states));
 
   sprite.addEventListener("error", () => {
     stage.dataset.fallback = "true";
   });
 
-  // Double-click re-seats her on the focused window.
+  if (tauri?.core) {
+    await tauri.event.listen("nerea://state", (event) => {
+      turnFrame = event.payload.state;
+      noteActivity();
+      if (!speaking) show(turnFrame);
+    });
+
+    await tauri.event.listen("nerea://say", (event) => playLine(event.payload));
+  }
+
   stage.addEventListener("dblclick", redock);
 
-  // Right-click opens the composer next to her; left drag is left to the WM.
   stage.addEventListener("contextmenu", (event) => {
     event.preventDefault();
     if (tauri?.core) tauri.core.invoke("open_composer");
   });
 
+  show("idle");
+  noteActivity();
   await redock();
-  play(DEFAULT_STATE);
+
+  if (tauri?.core) {
+    try {
+      await tauri.core.invoke("say", { category: "boot" });
+    } catch {
+      /* the bank is optional */
+    }
+  }
 }
 
 start().catch((error) => {

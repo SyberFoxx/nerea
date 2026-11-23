@@ -1,5 +1,9 @@
-use std::process::Command;
+use std::{
+    path::{Path, PathBuf},
+    process::Command,
+};
 
+use nerea_core::PhraseBank;
 use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition};
@@ -185,6 +189,100 @@ struct Delta {
 }
 
 const DELTA_EVENT: &str = "nerea://delta";
+const SAY_EVENT: &str = "nerea://say";
+
+/// One spoken line: the audio already exists, so playing it costs nothing.
+#[derive(Debug, Clone, Serialize)]
+pub struct Said {
+    pub id: String,
+    pub category: String,
+    pub ja: String,
+    pub es: String,
+    pub duration_ms: u64,
+    pub played: bool,
+}
+
+fn bank_dir() -> PathBuf {
+    std::env::var("NEREA_BANK_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("assets/voice/bank"))
+}
+
+/// Reads duration straight from the WAV headers instead of spawning ffprobe.
+fn wav_duration_ms(path: &Path) -> Option<u64> {
+    let bytes = std::fs::read(path).ok()?;
+    if bytes.len() < 44 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+        return None;
+    }
+
+    let mut offset = 12;
+    let (mut channels, mut rate, mut bits) = (1u64, 32_000u64, 16u64);
+
+    while offset + 8 <= bytes.len() {
+        let id = &bytes[offset..offset + 4];
+        let size = u32::from_le_bytes(bytes[offset + 4..offset + 8].try_into().ok()?) as usize;
+        let body = offset + 8;
+
+        if id == b"fmt " && body + 16 <= bytes.len() {
+            channels = u16::from_le_bytes([bytes[body + 2], bytes[body + 3]]) as u64;
+            rate = u32::from_le_bytes([
+                bytes[body + 4],
+                bytes[body + 5],
+                bytes[body + 6],
+                bytes[body + 7],
+            ]) as u64;
+            bits = u16::from_le_bytes([bytes[body + 14], bytes[body + 15]]) as u64;
+        } else if id == b"data" {
+            let bytes_per_second = rate * channels * bits.max(8) / 8;
+            if bytes_per_second == 0 {
+                return None;
+            }
+            let available = size.min(bytes.len().saturating_sub(body)) as u64;
+            return Some(available * 1000 / bytes_per_second);
+        }
+
+        offset = body + size + (size & 1);
+    }
+
+    None
+}
+
+fn speak(app: &AppHandle, bank: &PhraseBank, category: &str) -> Option<Said> {
+    let phrase = bank.pick(category)?;
+    let path = bank_dir().join(format!("{}.wav", phrase.id));
+    let played = path.exists();
+
+    if played {
+        // Detached: the UI must not wait for the audio to finish.
+        let _ = Command::new("pw-play").arg(&path).spawn();
+    }
+
+    let said = Said {
+        id: phrase.id,
+        category: phrase.category,
+        ja: phrase.ja,
+        es: phrase.es,
+        duration_ms: wav_duration_ms(&path).unwrap_or(1_800),
+        played,
+    };
+
+    let _ = app.emit(SAY_EVENT, &said);
+    Some(said)
+}
+
+#[tauri::command]
+pub fn say(
+    app: AppHandle,
+    bank: tauri::State<'_, PhraseBank>,
+    category: String,
+) -> Result<Option<Said>, String> {
+    Ok(speak(&app, &bank, &category))
+}
+
+#[tauri::command]
+pub fn say_categories(bank: tauri::State<'_, PhraseBank>) -> Vec<String> {
+    bank.categories().into_iter().map(str::to_owned).collect()
+}
 
 #[tauri::command]
 pub async fn status(state: tauri::State<'_, AppState>) -> Result<crate::state::Status, String> {
@@ -208,6 +306,7 @@ pub fn cancel_stream(state: tauri::State<'_, AppState>) {
 pub async fn send_message(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
+    bank: tauri::State<'_, PhraseBank>,
     text: String,
 ) -> Result<Reply, String> {
     let text = text.trim().to_owned();
@@ -215,13 +314,20 @@ pub async fn send_message(
         return Err("empty message".to_owned());
     }
 
-    let provider = state.ensure_provider().await?;
+    let provider = match state.ensure_provider().await {
+        Ok(provider) => provider,
+        Err(err) => {
+            speak(&app, &bank, "complain");
+            return Err(err);
+        }
+    };
     let request = state.begin_turn(&text).await;
 
     let mut stream = match provider.stream_chat_completion(&request).await {
         Ok(stream) => stream,
         Err(err) => {
             emit_state(&app, "error");
+            speak(&app, &bank, "complain");
             return Err(err.to_string());
         }
     };
@@ -253,6 +359,7 @@ pub async fn send_message(
             Err(err) => {
                 state.finish_turn(&reply).await;
                 emit_state(&app, "error");
+                speak(&app, &bank, "complain");
                 return Err(err.to_string());
             }
         }
