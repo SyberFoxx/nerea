@@ -356,6 +356,121 @@ def build_banner() -> Image.Image:
     return grain(image.convert("RGB").resize((width, height), Image.LANCZOS))
 
 
+def build_social() -> Image.Image:
+    """1280x640: the card GitHub shows when the repository is shared."""
+    scale = 2
+    width, height = 1280, 640
+    w, h = width * scale, height * scale
+
+    canvas = gradient(w, h, (11, 14, 18), (5, 7, 9))
+    glow(canvas, w * 0.80, h * 0.28, w * 0.24, (88, 46, 164), 0.58)
+    glow(canvas, w * 0.90, h * 0.02, w * 0.16, (20, 116, 106), 0.26)
+    glow(canvas, w * 0.02, h * 1.20, w * 0.28, (22, 80, 76), 0.24)
+    image = to_image(canvas).convert("RGBA")
+
+    watermark = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(watermark).text(
+        (w * 0.52, h * 0.54),
+        "ネレア",
+        font=japanese(int(250 * scale)),
+        fill=(138, 112, 220, 14),
+        anchor="mm",
+    )
+    image.alpha_composite(watermark.filter(ImageFilter.GaussianBlur(2.6 * scale)))
+
+    streak = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(streak).line(
+        [(w * 0.14, h * 1.08), (w * 0.98, -h * 0.10)],
+        fill=(176, 208, 255, 14),
+        width=int(2 * scale),
+    )
+    image.alpha_composite(streak.filter(ImageFilter.GaussianBlur(int(7 * scale))))
+
+    portrait = Image.open(ROOT / "ui" / "avatar" / "flirt.png").convert("RGBA")
+    portrait = portrait.crop((150, 0, 770, 960))
+
+    target_h = int(h * 1.10)
+    target_w = round(portrait.width * target_h / portrait.height)
+    portrait = portrait.resize((target_w, target_h), Image.LANCZOS)
+
+    alpha = np.array(portrait.getchannel("A"))
+    alpha = soften(alpha, left_ramp=int(target_w * 0.26), bottom_ramp=int(target_h * 0.12))
+    portrait.putalpha(Image.fromarray(alpha))
+    image.alpha_composite(portrait, (w - target_w - int(w * 0.018), -int(h * 0.07)))
+
+    draw = ImageDraw.Draw(image, "RGBA")
+    left = int(w * 0.062)
+
+    tracked(
+        draw,
+        (left, int(h * 0.150)),
+        "COMPAÑERA DE ESCRITORIO · LINUX",
+        inter(int(13 * scale), SEMIBOLD),
+        (104, 178, 170),
+        tracking=3.4 * scale,
+    )
+
+    wordmark_font = inter(int(126 * scale), EXTRABOLD)
+    wordmark_at = (left - int(3 * scale), int(h * 0.205))
+    end_x = tracked(draw, wordmark_at, "nerea", wordmark_font, PAPER, tracking=2.6 * scale)
+
+    mask = tracked_mask((w, h), wordmark_at, "nerea", wordmark_font, 2.6 * scale)
+    image.paste(to_image(gradient(w, h, (255, 255, 255), (203, 213, 221))), (0, 0), mask)
+
+    draw.text(
+        (end_x + 12 * scale, int(h * 0.315)),
+        "ネレア",
+        font=japanese(int(29 * scale)),
+        fill=(146, 128, 208, 235),
+    )
+
+    rule_y = int(h * 0.475)
+    draw.rectangle([left, rule_y, left + int(164 * scale), rule_y + int(4 * scale)], fill=TEAL)
+
+    tracked(
+        draw,
+        (left, int(h * 0.535)),
+        "Habla con voz propia.",
+        inter(int(29 * scale), SEMIBOLD),
+        (233, 240, 245),
+        tracking=0.2 * scale,
+    )
+    tracked(
+        draw,
+        (left, int(h * 0.615)),
+        "Y recuerda lo que hablaron.",
+        inter(int(29 * scale), LIGHT),
+        (139, 156, 166),
+        tracking=0.2 * scale,
+    )
+
+    dot = int(4 * scale)
+    dot_y = int(h * 0.775)
+    draw.ellipse([left, dot_y, left + dot * 2, dot_y + dot * 2], fill=TEAL)
+    tracked(
+        draw,
+        (left + dot * 4, dot_y - int(3 * scale)),
+        "github.com/SyberFoxx/nerea",
+        inter(int(17 * scale), MEDIUM),
+        (116, 133, 143),
+        tracking=1.2 * scale,
+    )
+
+    inset = int(15 * scale)
+    draw.rectangle([inset, inset, w - inset, h - inset], outline=(255, 255, 255, 14), width=scale)
+    tick, weight = int(24 * scale), int(2 * scale)
+    for cx, cy, dx, dy in (
+        (inset, inset, 1, 1),
+        (w - inset, inset, -1, 1),
+        (inset, h - inset, 1, -1),
+        (w - inset, h - inset, -1, -1),
+    ):
+        draw.line([(cx, cy), (cx + dx * tick, cy)], fill=TEAL + (90,), width=weight)
+        draw.line([(cx, cy), (cx, cy + dy * tick)], fill=TEAL + (90,), width=weight)
+
+    return grain(image.convert("RGB").resize((width, height), Image.LANCZOS))
+
+
 def build_signature() -> Image.Image:
     scale = 4
     width, height = 760, 220
@@ -388,9 +503,10 @@ def main() -> None:
     logo.resize((512, 512), Image.LANCZOS).save(HERE / "logo-512.png")
 
     build_banner().save(HERE / "banner.png")
+    build_social().save(HERE / "social.png")
     build_signature().save(HERE / "signature.png")
 
-    for name in ("logo.png", "logo-512.png", "banner.png", "signature.png"):
+    for name in ("logo.png", "logo-512.png", "banner.png", "social.png", "signature.png"):
         path = HERE / name
         print(f"{name:<16} {path.stat().st_size / 1024:7.0f} KB")
 

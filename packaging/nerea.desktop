@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Nerea
+GenericName=Desktop companion
+Comment=Compañera de escritorio con voz propia
+Exec=nerea-desktop
+Icon=nerea
+Terminal=false
+Categories=Utility;AudioVideo;
+Keywords=nerea;companion;assistant;voice;
+StartupNotify=true
+StartupWMClass=nerea-desktop

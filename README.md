@@ -115,12 +115,28 @@ cargo run -p nerea-cli -- providers               # providers, models, key state
 ### Packaged build
 
 ```bash
-cargo tauri build --bundles appimage     # or: npx @tauri-apps/cli@^2 build --bundles appimage
+npx @tauri-apps/cli@^2 build --bundles appimage   # the AppImage
+packaging/package.sh                              # .deb + portable tarball + copies the AppImage
 ```
 
-Artifacts land in `target/release/bundle/`. The AppImage is the portable one: it carries the binary
-and its libraries, so any x86_64 distribution with a Wayland or X11 session can run it. `.deb` and
-`.rpm` need `dpkg-deb` and `rpmbuild` on the build host; they are not built on Arch by default.
+| artifact | who it is for | floor |
+|---|---|---|
+| `nerea_0.2.0_amd64.deb` | Ubuntu, Debian, Mint, Pop!_OS, Zorin | glibc 2.39 |
+| `nerea-0.2.0-x86_64-linux.tar.gz` | any x86_64 distribution, installs into `~/.local`, no root | glibc 2.39 |
+| `nerea_0.2.0_amd64.AppImage` | any x86_64 distribution, single file | glibc 2.39 |
+
+The `.deb` installs the binary, the icon and a desktop entry; the tarball ships `./install.sh`,
+which does the same for the current user:
+
+```bash
+tar -xzf nerea-0.2.0-x86_64-linux.tar.gz
+./nerea-0.2.0-x86_64-linux/install.sh
+```
+
+These were built on a rolling host, so they require **glibc 2.39** — Ubuntu 24.04 and newer. For
+Ubuntu 22.04 and older, push a tag: `.github/workflows/release.yml` rebuilds on `ubuntu-22.04`
+(glibc 2.35) and attaches the artifacts with the correct floor. `.deb` and `.rpm` cannot be built on
+Arch without `dpkg-deb` and `rpmbuild`, which is why the `.deb` is assembled by hand with `ar`.
 
 The rendered voice bank is machine-local on purpose (20 MB of cloned voice), so a packaged build
 points at it explicitly:
@@ -238,8 +254,10 @@ will ask first, every time; that is the only way a companion with a shell is a g
 - **GTK refuses to resize a non-resizable window**, and the compositor needs that hint to keep her
   floating. The size therefore goes in as an identical minimum and maximum.
 - **No bundler.** Tauri serves `ui/` as static files; there is no node build step to keep green.
-- **Brand assets are generated.** `docs/brand/make_brand.py` builds the logo, banner and signature
-  from her own art and system fonts, so they never drift from the character.
+- **Brand assets are generated.** `docs/brand/make_brand.py` builds the logo, banner, social card
+  and signature from her own art and system fonts, so they never drift from the character.
+- **Packages are built where the oldest supported glibc lives.** A rolling host produces binaries
+  nobody on Ubuntu LTS can run; the release workflow builds on `ubuntu-22.04` for that reason.
 
 ## Known gaps
 
