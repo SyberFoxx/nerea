@@ -195,6 +195,13 @@ three characters. That points at per-request work — model reload or reference-
 rather than the autoregressive loop. Instrument `api_v2.py`'s `tts_handle` and cache the reference
 features before wiring audio into the app.
 
+### Plan B: a pre-rendered phrase bank
+
+If full speech stays slow, most of the companion feeling can come from a small bank of short lines
+(greeting, thinking, surprise, agreement, goodbye, teasing) rendered once with her voice and stored
+as WAV. Playback is instant, costs nothing at runtime, and covers avatar reactions; novel sentences
+keep using the live engine.
+
 ### Disk footprint
 
 | path | size | needed for |
