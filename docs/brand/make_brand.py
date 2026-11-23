@@ -186,80 +186,174 @@ def build_portrait_logo() -> Image.Image:
     return badge
 
 
+def soften(alpha: np.ndarray, left_ramp: int = 0, bottom_ramp: int = 0) -> np.ndarray:
+    """Fades a layer along its left edge and its bottom edge."""
+    height, width = alpha.shape
+
+    if left_ramp:
+        ramp = np.clip(np.arange(width) / max(left_ramp, 1), 0, 1) ** 1.15
+        alpha = np.minimum(alpha, np.tile((ramp * 255).astype(np.uint8)[None, :], (height, 1)))
+
+    if bottom_ramp:
+        ramp = np.clip((height - 1 - np.arange(height)) / max(bottom_ramp, 1), 0, 1) ** 1.25
+        alpha = np.minimum(alpha, np.tile((ramp * 255).astype(np.uint8)[:, None], (1, width)))
+
+    return alpha
+
+
+def grain(image: Image.Image, amount: float = 4.5, seed: int = 7) -> Image.Image:
+    """A little film grain: the cheapest way to stop a gradient looking printed."""
+    array = np.array(image.convert("RGB"), float)
+    noise = np.random.default_rng(seed).normal(0.0, amount, array.shape[:2])[..., None]
+    return Image.fromarray(np.clip(array + noise, 0, 255).astype(np.uint8), "RGB")
+
+
+def tracked_mask(size: tuple[int, int], xy: tuple[float, float], text: str,
+                 font: ImageFont.FreeTypeFont, tracking: float) -> Image.Image:
+    mask = Image.new("L", size, 0)
+    pen = ImageDraw.Draw(mask)
+    x, y = xy
+    for character in text:
+        pen.text((x, y), character, font=font, fill=255)
+        x += pen.textlength(character, font=font) + tracking
+    return mask
+
+
 def build_banner() -> Image.Image:
     scale = 2
-    width, height = 1600, 560
+    width, height = 1600, 600
     w, h = width * scale, height * scale
 
-    canvas = gradient(w, h, (12, 17, 21), (7, 10, 13))
-    glow(canvas, w * 0.16, h * 1.10, w * 0.40, VIOLET_DEEP, 0.34)
-    glow(canvas, w * 0.88, h * 0.06, w * 0.32, (9, 70, 70), 0.46)
+    canvas = gradient(w, h, (11, 14, 18), (5, 7, 9))
+    glow(canvas, w * 0.79, h * 0.26, w * 0.19, (88, 46, 164), 0.55)
+    glow(canvas, w * 0.86, h * 0.00, w * 0.13, (20, 116, 106), 0.26)
+    glow(canvas, w * 0.03, h * 1.24, w * 0.24, (22, 80, 76), 0.24)
     image = to_image(canvas).convert("RGBA")
 
+    # Her name in kana, huge and almost invisible, behind everything.
+    watermark = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(watermark).text(
+        (w * 0.47, h * 0.52),
+        "ネレア",
+        font=japanese(int(296 * scale)),
+        fill=(138, 112, 220, 15),
+        anchor="mm",
+    )
+    image.alpha_composite(watermark.filter(ImageFilter.GaussianBlur(2.6 * scale)))
+
+    # One glass edge crossing the frame, so the background has a direction.
+    streak = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(streak).line(
+        [(w * 0.16, h * 1.06), (w * 0.96, -h * 0.08)],
+        fill=(176, 208, 255, 14),
+        width=int(2 * scale),
+    )
+    image.alpha_composite(streak.filter(ImageFilter.GaussianBlur(int(7 * scale))))
+
+    # She bleeds out of the frame: cropped at the top, melted at the bottom and
+    # on her left side, so the painting does not read as a pasted rectangle.
     portrait = Image.open(ROOT / "ui" / "avatar" / "flirt.png").convert("RGBA")
-    target_h = int(h * 0.93)
+    portrait = portrait.crop((140, 0, 780, 940))
+
+    target_h = int(h * 1.16)
     target_w = round(portrait.width * target_h / portrait.height)
     portrait = portrait.resize((target_w, target_h), Image.LANCZOS)
 
-    backlight = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    ImageDraw.Draw(backlight).ellipse(
-        [
-            w - target_w * 0.95,
-            h * 0.12,
-            w + target_w * 0.35,
-            h * 1.05,
-        ],
-        fill=(120, 70, 210, 90),
+    alpha = np.array(portrait.getchannel("A"))
+    alpha = soften(
+        alpha,
+        left_ramp=int(target_w * 0.30),
+        bottom_ramp=int(target_h * 0.16),
     )
-    image.alpha_composite(backlight.filter(ImageFilter.GaussianBlur(int(w * 0.035))))
-    image.alpha_composite(portrait, (w - target_w - int(w * 0.012), h - target_h))
+    portrait.putalpha(Image.fromarray(alpha))
+
+    px = w - target_w - int(w * 0.012)
+    py = int(h * 0.02) - int(target_h - h * 0.97)
+    image.alpha_composite(portrait, (px, max(py, -int(h * 0.12))))
 
     draw = ImageDraw.Draw(image, "RGBA")
-    left = int(w * 0.058)
+    left = int(w * 0.061)
 
-    wordmark = inter(int(132 * scale), EXTRABOLD)
-    tracked(draw, (left, int(h * 0.20)), "nerea", wordmark, PAPER, tracking=6 * scale)
+    tracked(
+        draw,
+        (left, int(h * 0.185)),
+        "COMPAÑERA DE ESCRITORIO · LINUX",
+        inter(int(13 * scale), SEMIBOLD),
+        (104, 178, 170),
+        tracking=3.6 * scale,
+    )
 
+    wordmark_font = inter(int(152 * scale), EXTRABOLD)
+    wordmark_at = (left - int(4 * scale), int(h * 0.245))
+    end_x = tracked(draw, wordmark_at, "nerea", wordmark_font, PAPER, tracking=3 * scale)
+
+    # Gradient fill over the white so the wordmark has weight at the bottom.
+    mask = tracked_mask((w, h), wordmark_at, "nerea", wordmark_font, 3 * scale)
+    shade = gradient(w, h, (255, 255, 255), (203, 213, 221))
+    image.paste(to_image(shade), (0, 0), mask)
+
+    draw.text(
+        (end_x + 14 * scale, int(h * 0.365)),
+        "ネレア",
+        font=japanese(int(34 * scale)),
+        fill=(146, 128, 208, 235),
+    )
+
+    rule_y = int(h * 0.535)
     draw.rectangle(
-        [left, int(h * 0.505), left + int(148 * scale), int(h * 0.505) + 5 * scale],
+        [left, rule_y, left + int(196 * scale), rule_y + int(4 * scale)],
         fill=TEAL,
     )
 
+
+
     tracked(
         draw,
-        (left, int(h * 0.565)),
-        "Compañera de escritorio con voz propia",
-        inter(int(30 * scale), MEDIUM),
-        (208, 221, 228),
-        tracking=0.4 * scale,
+        (left, int(h * 0.60)),
+        "Habla con voz propia.",
+        inter(int(32 * scale), SEMIBOLD),
+        (233, 240, 245),
+        tracking=0.2 * scale,
     )
     tracked(
         draw,
-        (left, int(h * 0.655)),
-        "Rust · Tauri 2 · Linux",
-        inter(int(23 * scale), LIGHT),
-        MUTED,
-        tracking=2.2 * scale,
+        (left, int(h * 0.695)),
+        "Y recuerda lo que hablaron.",
+        inter(int(32 * scale), LIGHT),
+        (139, 156, 166),
+        tracking=0.2 * scale,
     )
 
-    chip = "v0.2.0"
-    chip_font = inter(int(21 * scale), SEMIBOLD)
-    chip_w = draw.textlength(chip, font=chip_font) + 26 * scale
-    chip_box = [
-        left,
-        int(h * 0.815),
-        left + chip_w,
-        int(h * 0.815) + int(38 * scale),
-    ]
-    draw.rounded_rectangle(chip_box, radius=int(10 * scale), outline=(46, 196, 182, 120), width=2 * scale)
-    draw.text(
-        (chip_box[0] + 13 * scale, chip_box[1] + 8 * scale),
-        chip,
-        font=chip_font,
-        fill=(150, 226, 218),
+    dot = int(4 * scale)
+    dot_y = int(h * 0.845)
+    draw.ellipse([left, dot_y, left + dot * 2, dot_y + dot * 2], fill=TEAL)
+    tracked(
+        draw,
+        (left + dot * 4, dot_y - int(3 * scale)),
+        "v0.2.0 · Rust · Tauri 2 · AppImage x86_64",
+        inter(int(18 * scale), MEDIUM),
+        (116, 133, 143),
+        tracking=1.6 * scale,
     )
 
-    return image.resize((width, height), Image.LANCZOS)
+    # Hairline frame and four corner ticks: it reads as a poster, not a crop.
+    inset = int(16 * scale)
+    draw.rectangle(
+        [inset, inset, w - inset, h - inset],
+        outline=(255, 255, 255, 14),
+        width=scale,
+    )
+    tick, weight = int(26 * scale), int(2 * scale)
+    for cx, cy, dx, dy in (
+        (inset, inset, 1, 1),
+        (w - inset, inset, -1, 1),
+        (inset, h - inset, 1, -1),
+        (w - inset, h - inset, -1, -1),
+    ):
+        draw.line([(cx, cy), (cx + dx * tick, cy)], fill=TEAL + (90,), width=weight)
+        draw.line([(cx, cy), (cx, cy + dy * tick)], fill=TEAL + (90,), width=weight)
+
+    return grain(image.convert("RGB").resize((width, height), Image.LANCZOS))
 
 
 def build_signature() -> Image.Image:
