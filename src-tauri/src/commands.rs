@@ -361,6 +361,7 @@ struct Delta {
 }
 
 const DELTA_EVENT: &str = "nerea://delta";
+const UPDATE_EVENT: &str = "nerea://update";
 const SAY_EVENT: &str = "nerea://say";
 
 /// One spoken line: the audio already exists, so playing it costs nothing.
@@ -453,6 +454,41 @@ pub(crate) fn speak(app: &AppHandle, bank: &PhraseBank, category: &str) -> Optio
 
     let _ = app.emit(SAY_EVENT, &said);
     Some(said)
+}
+
+/// What the panel needs to offer the update entry, or to hide it.
+#[tauri::command]
+pub async fn update_status() -> Result<crate::update::UpdateStatus, String> {
+    tauri::async_runtime::spawn_blocking(crate::update::status)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+/// Pulls the checkout and rebuilds. The caller restarts into the new binary.
+#[tauri::command]
+pub async fn update_apply(app: AppHandle) -> Result<(), String> {
+    let _ = app.emit(UPDATE_EVENT, "pull");
+
+    if let Err(err) = tauri::async_runtime::spawn_blocking(crate::update::pull)
+        .await
+        .map_err(|err| err.to_string())?
+    {
+        let _ = app.emit(UPDATE_EVENT, err.clone());
+        return Err(err);
+    }
+
+    let _ = app.emit(UPDATE_EVENT, "build");
+
+    if let Err(err) = tauri::async_runtime::spawn_blocking(crate::update::build)
+        .await
+        .map_err(|err| err.to_string())?
+    {
+        let _ = app.emit(UPDATE_EVENT, err.clone());
+        return Err(err);
+    }
+
+    let _ = app.emit(UPDATE_EVENT, "restarting");
+    app.restart()
 }
 
 /// One short extra call: the tone of the reply decides which reaction plays.

@@ -1,5 +1,6 @@
 mod commands;
 mod state;
+mod update;
 
 use tauri::{Emitter, Manager};
 
@@ -11,6 +12,30 @@ pub fn run() {
 
             // Development aid: open the panel without a pointer so its layout can
             // be checked from a script. Never set in normal use.
+            // Development aid: run the same check the menu runs and, when asked,
+            // apply it. Off unless the environment says otherwise.
+            if std::env::var_os("NEREA_AUTO_UPDATE").is_some() {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    let status = update::status();
+                    eprintln!(
+                        "nerea update: behind={} dirty={} can={}",
+                        status.behind, status.dirty, status.can_update
+                    );
+                    if !status.can_update {
+                        return;
+                    }
+                    match update::pull().and_then(|_| update::build()) {
+                        Ok(()) => {
+                            eprintln!("nerea update: rebuilt, restarting");
+                            handle.restart();
+                        }
+                        Err(err) => eprintln!("nerea update: failed: {err}"),
+                    }
+                });
+            }
+
             if std::env::var_os("NEREA_OPEN_PANEL").is_some() {
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {
@@ -36,6 +61,8 @@ pub fn run() {
             commands::history,
             commands::transcript,
             commands::quit,
+            commands::update_status,
+            commands::update_apply,
         ])
         .build(tauri::generate_context!());
 

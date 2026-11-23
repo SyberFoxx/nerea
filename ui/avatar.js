@@ -51,6 +51,8 @@ let streamingBubble = null;
 let lastPress = 0;
 let lastPoint = { x: 0, y: 0 };
 let armReset = null;
+let armUpdate = null;
+let updateEntry = null;
 
 function invoke(command, args) {
   return tauri.core.invoke(command, args);
@@ -165,6 +167,27 @@ function togglePanel() {
   return panelOpen ? closePanel() : openPanel();
 }
 
+async function refreshUpdate() {
+  if (!updateEntry) return;
+
+  const status = await invoke("update_status").catch(() => null);
+  if (!status || !status.repo) {
+    updateEntry.hidden = true;
+    return;
+  }
+
+  if (status.behind > 0) {
+    updateEntry.hidden = false;
+    updateEntry.disabled = status.dirty;
+    updateEntry.textContent = status.dirty
+      ? `Actualizar (${status.behind}) — hay cambios sin commitear`
+      : `Actualizar (${status.behind} nuevo${status.behind === 1 ? "" : "s"})`;
+    return;
+  }
+
+  updateEntry.hidden = true;
+}
+
 function hideMenu() {
   menu.hidden = true;
   menuButton.setAttribute("aria-expanded", "false");
@@ -245,6 +268,19 @@ async function start() {
 
   await tauri.event.listen("nerea://say", (event) => playLine(event.payload));
 
+  await tauri.event.listen("nerea://update", (event) => {
+    const state = event.payload;
+    const line =
+      state === "build"
+        ? "Compilando la versión nueva…"
+        : state === "restarting"
+          ? "Listo. Reiniciando."
+          : typeof state === "string"
+            ? state
+            : "";
+    if (line) addBubble("murmur", line);
+  });
+
   // Development aid: the shell can ask for the panel without a pointer.
   await tauri.event.listen("nerea://panel", (event) => {
     if (event.payload) openPanel();
@@ -277,6 +313,8 @@ async function start() {
     else openPanel();
   });
 
+  updateEntry = menu.querySelector('[data-action="update"]');
+
   menuButton.addEventListener("click", toggleMenu);
   closeButton.addEventListener("click", closePanel);
 
@@ -306,6 +344,27 @@ async function start() {
 
     hideMenu();
 
+    if (action === "update") {
+      if (!armUpdate) {
+        const label = event.target.textContent;
+        armUpdate = setTimeout(() => {
+          armUpdate = null;
+          event.target.textContent = label;
+        }, 4000);
+        event.target.textContent = "¿Actualizar y reiniciar? Otra vez";
+        return;
+      }
+      clearTimeout(armUpdate);
+      armUpdate = null;
+      addBubble("murmur", "Trayendo los cambios del repo…");
+      try {
+        await invoke("update_apply");
+      } catch (error) {
+        addBubble("murmur", `No pude actualizar: ${describe(error)}`);
+      }
+      return;
+    }
+
     if (action === "history") await invoke("open_history").catch(() => {});
     if (action === "dock") await invoke("dock").catch(() => {});
     if (action === "quit") await invoke("quit").catch(() => {});
@@ -329,6 +388,7 @@ async function start() {
 
   show("idle");
   noteActivity();
+  refreshUpdate();
   await redock();
   await invoke("greet").catch(() => {});
 }
