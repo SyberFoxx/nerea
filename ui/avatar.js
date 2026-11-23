@@ -51,6 +51,7 @@ let busy = false;
 let streamingBubble = null;
 let press = null;
 let dragSession = null;
+let closing = false;
 let armReset = null;
 let armUpdate = null;
 let updateEntry = null;
@@ -147,7 +148,7 @@ async function loadRecent() {
  *
  * Hiding her and resizing the window are two different processes; without this
  * gate the move reaches the compositor before the page paints the hide, and she
- * is seen flying to the corner the resize is about to land on.
+ * is seen sliding to the corner the resize is about to land on.
  */
 function painted() {
   return new Promise((resolve) => {
@@ -158,7 +159,7 @@ function painted() {
       resolve();
     };
     requestAnimationFrame(() => requestAnimationFrame(finish));
-    setTimeout(finish, 150);
+    setTimeout(finish, 200);
   });
 }
 
@@ -167,8 +168,6 @@ async function openPanel() {
   if (panelOpen) return;
   panelOpen = true;
 
-  // She is hidden while the window grows: GTK reflows the page mid-resize, and
-  // a visible reflow reads as her stretching across the screen.
   stage.style.visibility = "hidden";
   panel.hidden = false;
   stage.dataset.panel = "open";
@@ -182,18 +181,30 @@ async function openPanel() {
   noteActivity();
 }
 
-/** Back to her portrait. */
+/** How long she gets to be read before the window closes. */
+const FAREWELL_MS = 2600;
+
+/** Back to her portrait, after she has said goodbye and been read. */
 async function closePanel() {
-  if (!panelOpen) return;
+  if (!panelOpen || closing) return;
   panelOpen = false;
+  closing = true;
 
   hideMenu();
+
+  // Closing the chat is not the same as leaving: she says goodbye, the line
+  // stays on screen, and only then does the window go back to her portrait.
+  await invoke("say", { category: "goodbye" }).catch(() => {});
+  await new Promise((resolve) => setTimeout(resolve, FAREWELL_MS));
+
   stage.style.visibility = "hidden";
   panel.hidden = true;
   stage.dataset.panel = "closed";
   await painted();
   await invoke("close_panel").catch(() => {});
   stage.style.visibility = "visible";
+
+  closing = false;
 }
 
 async function refreshUpdate() {

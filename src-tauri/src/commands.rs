@@ -143,7 +143,7 @@ fn place_window(frame: &OwnWindow, x: i32, y: i32) {
 
 /// Her portrait alone, and the same window with the chat open.
 const PORTRAIT: (f64, f64) = (176.0, 256.0);
-const PANEL: (f64, f64) = (560.0, 560.0);
+const PANEL: (f64, f64) = (600.0, 600.0);
 
 /// Pins the window to an exact size.
 ///
@@ -179,6 +179,10 @@ async fn resize_panel(app: &AppHandle, open: bool) -> Result<(), String> {
 
     let frame = own_window("nerea-avatar");
 
+    // The compositor resizes a floating window around its centre, and the move
+    // that keeps her corner is a separate request: the window is placed where
+    // the resize will leave her, so both land in the same breath. The page
+    // hides itself for the swap, so none of it is ever drawn.
     if let Some(frame) = frame.as_ref() {
         let (x, y, width, height) = anchored(frame, target, scale);
         let pre_x = x + (width - frame.width) / 2;
