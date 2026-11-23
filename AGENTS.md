@@ -9,7 +9,7 @@ Nerea: a desktop companion for Linux. A UI-agnostic Rust core, a Tauri 2 shell w
 transparent window, a cloned Japanese voice and a persistent conversation.
 
 ```
-crates/nerea-core     providers · secrets · config · conversation · transcript · memory · recall · phrase bank
+crates/nerea-core     providers · secrets · config · conversation · transcript · memory · recall · persona · phrase bank
 crates/nerea-cli      headless harness (clap, tokio)
 src-tauri             Tauri shell: commands, window placement, voice engine supervision, update
 ui                    plain HTML/CSS/JS, no bundler
@@ -36,6 +36,13 @@ npx @tauri-apps/cli@^2 build --bundles appimage
 packaging/package.sh                          # .deb + tarball, same script CI runs
 python3 docs/brand/make_brand.py              # regenerate every brand asset
 ```
+
+## Who she is
+
+`crates/nerea-core/src/persona.rs` holds her whole self — name, family, history, temper, voice — and
+the machine contract that keeps her useful. It travels with **every** request, so it has a size test:
+if the persona grows past its budget, the test fails instead of quietly costing tokens on every turn.
+Change her there, never in a provider or a command.
 
 ## Invariants
 

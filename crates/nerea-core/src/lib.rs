@@ -8,6 +8,7 @@ pub mod conversation;
 pub mod error;
 pub mod factory;
 pub mod memory;
+pub mod persona;
 pub mod phrase;
 pub mod recall;
 pub mod secrets;

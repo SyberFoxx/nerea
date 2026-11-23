@@ -8,14 +8,10 @@ use clap::{Parser, Subcommand};
 use futures::StreamExt;
 use nerea_core::{
     factory::{self, KeyState, PlatformKeys},
-    presets, AiProvider, Config, Conversation, SecretStore,
+    persona, presets, AiProvider, Config, Conversation, SecretStore,
 };
 
 const SERVICE: &str = "nerea";
-
-const SYSTEM_PROMPT: &str = "You are Nerea, a concise AI desktop companion living on the user's \
-Linux machine. Answer in the user's language. Keep replies short unless the user asks for depth. \
-Never invent facts about the user; ask instead.";
 
 /// Prompt budget in estimated tokens. A companion needs recent context, not a
 /// 128k window; keeping it small also keeps latency and cost low.
@@ -173,7 +169,7 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             }
             let provider = chain.provider;
 
-            let mut conversation = Conversation::new(SYSTEM_PROMPT, CONTEXT_BUDGET_TOKENS);
+            let mut conversation = Conversation::new(persona::system_prompt(), CONTEXT_BUDGET_TOKENS);
 
             if !message.is_empty() {
                 conversation.push_user(message.join(" "));

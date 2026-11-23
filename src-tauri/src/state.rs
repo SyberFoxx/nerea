@@ -16,11 +16,6 @@ use tokio::sync::Mutex;
 
 pub const SERVICE: &str = "nerea";
 
-const SYSTEM_PROMPT: &str = "You are Nerea, a concise AI desktop companion living on the user's \
-Linux machine. Answer in the user's language. Keep replies short unless the user asks for depth. \
-Never invent facts about the user; ask instead. Earlier turns may come from a previous session: \
-treat them as your own memory of the conversation.";
-
 /// Resumes from the summary instead of re-sending the whole transcript.
 const SUMMARY_PROMPT: &str = "Sos la memoria de Nerea, una compañera de escritorio. Recibís la \
 memoria previa y un bloque de turnos nuevos. Devolvés la memoria actualizada, en español neutro, en \
@@ -128,7 +123,7 @@ impl AppState {
         let keep_from = restored.len().saturating_sub(RESTORED_MESSAGES);
         restored.drain(..keep_from);
 
-        let mut conversation = Conversation::new(SYSTEM_PROMPT, CONTEXT_BUDGET_TOKENS);
+        let mut conversation = Conversation::new(nerea_core::persona::system_prompt(), CONTEXT_BUDGET_TOKENS);
         for message in restored.iter().cloned() {
             conversation.push(message);
         }
@@ -237,7 +232,7 @@ impl AppState {
 
     pub async fn reset(&self) {
         let mut session = self.session.lock().await;
-        session.conversation = Conversation::new(SYSTEM_PROMPT, CONTEXT_BUDGET_TOKENS);
+        session.conversation = Conversation::new(nerea_core::persona::system_prompt(), CONTEXT_BUDGET_TOKENS);
         session.memory = Memory::default();
         session.recall = RecallIndex::build(Vec::new());
         session.since_index = 0;
