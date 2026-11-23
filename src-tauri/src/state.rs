@@ -7,6 +7,7 @@ use nerea_core::{
     factory::{self, PlatformKeys},
     memory::{plan, Memory, MemoryStore},
     presets,
+    recall::{age_label, Corpus, Hit},
     transcript::Transcript,
     AiProvider, ChatMessage, ChatRequest, Config, Conversation, Entry, Role,
 };
@@ -36,11 +37,42 @@ const RESTORED_MESSAGES: usize = 400;
 /// Warnings are informative, not a log: more than a handful means noise.
 const MAX_WARNINGS: usize = 6;
 
+/// How many old episodes a single turn may carry, and how relevant one has to
+/// be before it is worth the tokens.
+const RECALL_LIMIT: usize = 4;
+const RECALL_MIN_SCORE: f64 = 1.0;
+/// Turns already in the prompt do not need to be recalled.
+const RECALL_SKIP_NEWEST: usize = 12;
+/// Rebuild the index once this many turns were added to it.
+const RECALL_REBUILD_EVERY: usize = 8;
+
+/// The searchable transcript plus its index.
+struct RecallIndex {
+    entries: Vec<Entry>,
+    corpus: Corpus,
+}
+
+impl RecallIndex {
+    fn build(entries: Vec<Entry>) -> Self {
+        let corpus = Corpus::build(&entries);
+        Self { entries, corpus }
+    }
+}
+
+/// What one turn needs: the prompt, plus how much came out of the past.
+pub struct Turn {
+    pub request: ChatRequest,
+    pub recalled: usize,
+    pub oldest_days: u64,
+}
+
 struct Session {
     conversation: Conversation,
     provider: Option<Arc<dyn AiProvider>>,
     warnings: Vec<String>,
     memory: Memory,
+    recall: RecallIndex,
+    since_index: usize,
 }
 
 /// Shared state behind the IPC commands.
@@ -101,12 +133,16 @@ impl AppState {
             conversation.push(message);
         }
 
+        let recall = RecallIndex::build(transcript.entries());
+
         Self {
             session: Arc::new(Mutex::new(Session {
                 conversation,
                 provider: None,
                 warnings: Vec::new(),
                 memory,
+                recall,
+                since_index: 0,
             })),
             cancel: Arc::new(AtomicBool::new(false)),
             transcript,
@@ -157,7 +193,7 @@ impl AppState {
         }
     }
 
-    pub async fn begin_turn(&self, text: &str) -> ChatRequest {
+    pub async fn begin_turn(&self, text: &str) -> Turn {
         self.cancel.store(false, Ordering::SeqCst);
         let mut session = self.session.lock().await;
         session.conversation.push_user(text);
@@ -166,8 +202,12 @@ impl AppState {
             note(&mut session.warnings, format!("memory write failed: {err}"));
         }
 
+        let (rendered, recalled, oldest_days) = render_recall(&session.recall, text);
+
         let summary = session.memory.text.clone();
-        session.conversation.request_with_memory(Some(&summary))
+        let request = session.conversation.request_with_context(Some(&summary), rendered.as_deref());
+
+        Turn { request, recalled, oldest_days }
     }
 
     /// Returns the new turn count. An empty reply (cancelled or failed early) is
@@ -179,14 +219,28 @@ impl AppState {
             if let Err(err) = self.transcript.append(Role::Assistant, reply) {
                 note(&mut session.warnings, format!("memory write failed: {err}"));
             }
+            self.refresh_recall(&mut session);
         }
         session.conversation.len()
+    }
+
+    /// Rebuilds the recall index once enough new turns piled up.
+    fn refresh_recall(&self, session: &mut Session) {
+        session.since_index += 1;
+        if session.since_index < RECALL_REBUILD_EVERY {
+            return;
+        }
+
+        session.since_index = 0;
+        session.recall = RecallIndex::build(self.transcript.entries());
     }
 
     pub async fn reset(&self) {
         let mut session = self.session.lock().await;
         session.conversation = Conversation::new(SYSTEM_PROMPT, CONTEXT_BUDGET_TOKENS);
         session.memory = Memory::default();
+        session.recall = RecallIndex::build(Vec::new());
+        session.since_index = 0;
 
         if let Err(err) = self.transcript.clear() {
             note(&mut session.warnings, format!("memory clear failed: {err}"));
@@ -242,6 +296,12 @@ impl AppState {
         self.transcript.entries()
     }
 
+    /// Read-only peek at what recall would send, for diagnostics.
+    pub async fn recall_preview(&self, query: &str) -> Option<String> {
+        let session = self.session.lock().await;
+        render_recall(&session.recall, query).0
+    }
+
     pub async fn memory_text(&self) -> String {
         self.session.lock().await.memory.text.clone()
     }
@@ -258,6 +318,87 @@ impl AppState {
     pub fn take_cancel(&self) -> bool {
         self.cancel.swap(false, Ordering::SeqCst)
     }
+}
+
+/// Turns old episodes into the block the prompt carries.
+///
+/// Returns the rendered block, how many episodes made it, and the age in days
+/// of the oldest one, which is what the UI uses to say "me acordé de algo".
+fn render_recall(index: &RecallIndex, query: &str) -> (Option<String>, usize, u64) {
+    if index.corpus.is_empty() {
+        return (None, 0, 0);
+    }
+
+    let total = index.entries.len();
+    let skip_from = total.saturating_sub(RECALL_SKIP_NEWEST);
+
+    let hits: Vec<Hit> = index
+        .corpus
+        .search(query, RECALL_LIMIT * 2)
+        .into_iter()
+        .filter(|hit| hit.score >= RECALL_MIN_SCORE && hit.position < skip_from)
+        .take(RECALL_LIMIT)
+        .collect();
+
+    if hits.is_empty() {
+        return (None, 0, 0);
+    }
+
+    let now = now_ms();
+    let mut block = String::new();
+    let mut used: Vec<usize> = Vec::new();
+    let mut oldest = u64::MAX;
+
+    for hit in &hits {
+        // A turn is a question and its answer: recalling half of it reads wrong.
+        let (start, end) = if index.entries[hit.position].role == Role::User {
+            let answer = index
+                .entries
+                .get(hit.position + 1)
+                .is_some_and(|entry| entry.role == Role::Assistant);
+            (hit.position, if answer { hit.position + 1 } else { hit.position })
+        } else {
+            let question = hit.position > 0 && index.entries[hit.position - 1].role == Role::User;
+            (if question { hit.position - 1 } else { hit.position }, hit.position)
+        };
+
+        if used.contains(&start) || start >= skip_from {
+            continue;
+        }
+        used.push(start);
+
+        for position in start..=end {
+            let entry = &index.entries[position];
+            if entry.role == Role::System {
+                continue;
+            }
+
+            oldest = oldest.min(entry.at);
+
+            let who = if entry.role == Role::User { "Lioner" } else { "Nerea" };
+            block.push('[');
+            block.push_str(&age_label(entry.at, now));
+            block.push_str("] ");
+            block.push_str(who);
+            block.push_str(": ");
+            block.push_str(entry.content.trim().chars().take(400).collect::<String>().as_str());
+            block.push('\n');
+        }
+    }
+
+    if block.is_empty() {
+        return (None, 0, 0);
+    }
+
+    let days = (now.saturating_sub(oldest)) / 86_400_000;
+    (Some(block), used.len(), days)
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or_default()
 }
 
 fn summary_request(previous: &str, chunk: &[Entry]) -> ChatRequest {
@@ -335,6 +476,30 @@ mod tests {
         assert!(body.contains("memoria vieja"));
         assert!(body.contains("Lioner: quiero ordenar el escritorio"));
         assert!(body.contains("Nerea: ara ara, veamos"));
+    }
+
+    #[test]
+    fn recall_pairs_the_answer_with_its_question() {
+        let now = now_ms();
+        let day = 86_400_000u64;
+        let mut entries = vec![
+            entry(Role::User, "¿Dónde guardamos las claves de la API?", now - 40 * day),
+            entry(Role::Assistant, "En el keyring del sistema.", now - 40 * day),
+        ];
+        for index in 0..RECALL_SKIP_NEWEST {
+            entries.push(entry(Role::User, &format!("charla reciente {index}"), now));
+            entries.push(entry(Role::Assistant, "sí", now));
+        }
+
+        let index = RecallIndex::build(entries);
+        let (block, hits, days) = render_recall(&index, "claves de la api");
+
+        let block = block.expect("a recall block");
+        assert_eq!(hits, 1);
+        assert_eq!(days, 40);
+        assert!(block.contains("Lioner: ¿Dónde guardamos las claves"));
+        assert!(block.contains("Nerea: En el keyring"), "the answer comes with it");
+        assert!(block.starts_with("[hace 1 mes]"));
     }
 
     #[test]

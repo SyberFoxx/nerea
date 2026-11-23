@@ -67,20 +67,32 @@ impl Conversation {
         }
     }
 
-    /// The prompt with the running summary folded into the system message.
+    /// The prompt with the running summary and the recalled episodes folded
+    /// into the system message.
     ///
-    /// It goes there instead of as a second system turn because not every
+    /// They go there instead of as extra system turns because not every
     /// gateway treats multiple system messages the same way.
-    pub fn request_with_memory(&self, memory: Option<&str>) -> ChatRequest {
+    pub fn request_with_context(&self, memory: Option<&str>, recall: Option<&str>) -> ChatRequest {
         let mut request = self.request();
+        let mut extra = String::new();
 
-        if let Some(memory) = memory.map(str::trim).filter(|text| !text.is_empty())
+        if let Some(memory) = memory.map(str::trim).filter(|text| !text.is_empty()) {
+            extra.push_str("\n\nMemoria de la conversación hasta ahora (tu recuerdo, no del usuario):\n");
+            extra.push_str(memory);
+        }
+
+        if let Some(recall) = recall.map(str::trim).filter(|text| !text.is_empty()) {
+            extra.push_str(
+                "\n\nFragmentos de conversaciones anteriores que pueden venir al caso. Son recuerdos \
+tuyos: no los repitas textualmente, usalos solo si ayudan.\n",
+            );
+            extra.push_str(recall);
+        }
+
+        if !extra.is_empty()
             && let Some(system) = request.messages.first_mut()
         {
-            system.content = format!(
-                "{}\n\nMemoria de la conversación hasta ahora (tu recuerdo, no del usuario):\n{memory}",
-                self.system_prompt
-            );
+            system.content = format!("{}{extra}", self.system_prompt);
         }
 
         request

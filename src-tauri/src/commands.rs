@@ -378,6 +378,7 @@ struct Delta {
 const DELTA_EVENT: &str = "nerea://delta";
 const UPDATE_EVENT: &str = "nerea://update";
 const MEMORY_EVENT: &str = "nerea://memory";
+const RECALL_EVENT: &str = "nerea://recall";
 const SAY_EVENT: &str = "nerea://say";
 
 /// One spoken line: the audio already exists, so playing it costs nothing.
@@ -596,7 +597,12 @@ pub async fn send_message(
             return Err(err);
         }
     };
-    let request = state.begin_turn(&text).await;
+    let turn = state.begin_turn(&text).await;
+    let request = turn.request;
+
+    if turn.recalled > 0 && turn.oldest_days >= 1 {
+        let _ = app.emit(RECALL_EVENT, turn.recalled);
+    }
 
     let mut stream = match provider.stream_chat_completion(&request).await {
         Ok(stream) => stream,

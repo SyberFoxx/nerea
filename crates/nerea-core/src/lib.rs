@@ -9,6 +9,7 @@ pub mod error;
 pub mod factory;
 pub mod memory;
 pub mod phrase;
+pub mod recall;
 pub mod secrets;
 pub mod transcript;
 
@@ -21,6 +22,7 @@ pub use config::{Config, Fallback};
 pub use factory::{BuildError, Chain, KeySource, KeyState, PlatformKeys};
 pub use memory::{Memory, MemoryStore};
 pub use phrase::{Phrase, PhraseBank};
+pub use recall::{Corpus, Hit};
 pub use conversation::{Conversation, estimate_tokens};
 pub use error::ProviderError;
 pub use secrets::{SecretError, SecretStore};

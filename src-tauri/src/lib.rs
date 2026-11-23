@@ -12,6 +12,19 @@ pub fn run() {
 
             // Development aid: open the panel without a pointer so its layout can
             // be checked from a script. Never set in normal use.
+            // Development aid: print what recall would send for a query.
+            if let Ok(query) = std::env::var("NEREA_RECALL_QUERY") {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    std::thread::sleep(std::time::Duration::from_millis(900));
+                    let state = handle.state::<state::AppState>().inner().clone();
+                    match state.recall_preview(&query).await {
+                        Some(block) => eprintln!("nerea recall:\n{block}"),
+                        None => eprintln!("nerea recall: nothing found"),
+                    }
+                });
+            }
+
             // Development aid: force the summarizer once, to check it without
             // waiting for two dozen turns.
             if std::env::var_os("NEREA_SUMMARIZE_NOW").is_some() {

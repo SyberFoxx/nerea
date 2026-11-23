@@ -182,8 +182,19 @@ If that call fails, the previous memory stays and the next turn retries: a bad s
 replaces a good one, and the transcript is always the source of truth. `Borrar memoria` clears the
 turns, the summary and the files.
 
-What is still missing is *recall*: asking "what did we say about X last month" needs embeddings and
-a search over the transcript, not a summary.
+**Recall.** Before every turn the message is searched against the whole transcript with a small
+BM25 index built in memory (no model download, no database, rebuilt as the transcript grows). The
+best four episodes older than the current prompt window ride along as recalled fragments:
+
+```
+[hace 1 mes] Lioner: La voz clonada en japonés funciona pero tarda quince segundos.
+[hace 1 mes] Nerea: Quince segundos fijos por request: hay que cachear el audio de referencia.
+```
+
+It is lexical on purpose: it will miss a paraphrase, but it never invents a memory — if the words
+are not in the transcript, nothing comes back. Accents are folded, so `cancion` finds `canción`, and
+a hit always brings the answer with its question. When something older than a day is recalled, she
+says so in the chat.
 
 ## Providers
 
@@ -249,7 +260,7 @@ cargo run -p nerea-cli -- config show|path|init
 cargo run -p nerea-desktop                       # the app
 NEREA_DEBUG=1 cargo run -p nerea-desktop         # log window and run events
 
-cargo test                                       # 64 tests, no network
+cargo test                                       # 72 tests, no network
 cargo clippy --all-targets -- -D warnings
 ```
 
@@ -260,9 +271,10 @@ cargo clippy --all-targets -- -D warnings
 | `0.1.0` | core providers, conversation budget, failover, keyring, CLI harness |
 | `0.2.0` | one window with the attached panel, durable memory, read-only history, boot/resume lines, brand |
 | `0.2.1` | self-update from the checkout and packaging moved to CI |
-| **`0.3.0`** | long-term memory: a running summary so the prompt stops degrading |
-| `0.4.0` | live voice for replies: faithful Japanese line, TTS, `talking` frame, subtitle |
-| `0.5.0` | PC control: files, windows, commands — each action behind an explicit confirmation |
+| `0.3.0` | long-term memory: a running summary so the prompt stops degrading |
+| **`0.4.0`** | recall: the turns that matter come back when the message asks for them |
+| `0.5.0` | live voice for replies: faithful Japanese line, TTS, `talking` frame, subtitle |
+| `0.6.0` | PC control: files, windows, commands — each action behind an explicit confirmation |
 
 PC control is a recorded requirement, not an implemented one. Anything that touches your machine
 will ask first, every time; that is the only way a companion with a shell is a good idea.
@@ -293,7 +305,8 @@ will ask first, every time; that is the only way a companion with a shell is a g
 - Live speech for replies is not wired: only bank lines speak.
 - Installed packages do not self-update yet; only a checkout does. That needs signed releases and a
   feed, which is the next step after the CI pipeline settles.
-- Memory is a summary, not a search: there is no semantic recall over old turns yet.
+- Recall is lexical: a question that shares no words with the old turns finds nothing. Embeddings
+  would fix that, and would cost a model download plus a vector store.
 - One turn in flight at a time; the input is disabled while streaming.
 - The frontend has no automated test — it is verified by opening the window.
 - Dock assumes Hyprland; elsewhere she stays where the window manager placed her.
