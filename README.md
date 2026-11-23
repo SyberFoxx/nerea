@@ -19,8 +19,6 @@ her body; close it and she goes back to being a small figure sitting on the corn
 Her text is Spanish, her voice is Japanese, and she remembers the conversation after a restart.
 
 Rust core, Tauri 2 shell, static art. No Electron, no WebGL, no JavaScript in the brain.
-Conceptually inspired by [CapriCore](https://github.com/CapriChooms/CapriCore), deliberately not
-its stack.
 
 ---
 
