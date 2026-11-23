@@ -8,8 +8,10 @@ use crate::error::ProviderError;
 
 /// Tries `primary` first and fails over to `secondary` on transient errors.
 ///
-/// Streaming only fails over while nothing has been emitted: restarting after the
-/// first token would duplicate text the user already saw.
+/// Streaming fails over only while nothing visible has been emitted: restarting
+/// after the first token would duplicate text the user already saw. Empty deltas
+/// do not count as visible content — OpenAI-compatible streams open with a
+/// role-only chunk that decodes to an empty string.
 pub struct FallbackProvider {
     primary: Arc<dyn AiProvider>,
     secondary: Arc<dyn AiProvider>,
@@ -58,16 +60,20 @@ impl AiProvider for FallbackProvider {
             Err(err) => return Err(err),
         };
 
-        // Peek at the first item: an error before any token is still failover-able.
-        match primary.next().await {
-            None => Ok(primary),
-            Some(Ok(first)) => {
-                Ok(stream::once(async move { Ok(first) }).chain(primary).boxed())
+        // Pull until something visible arrives. Errors before the first visible
+        // token are still failover-able; so is a stream that ends with nothing.
+        loop {
+            match primary.next().await {
+                Some(Ok(delta)) if delta.is_empty() => continue,
+                Some(Ok(delta)) => {
+                    return Ok(stream::once(async move { Ok(delta) }).chain(primary).boxed());
+                }
+                Some(Err(err)) if err.is_failover_worthy() => {
+                    return self.secondary.stream_chat_completion(messages).await;
+                }
+                Some(Err(err)) => return Ok(stream::once(async move { Err(err) }).boxed()),
+                None => return self.secondary.stream_chat_completion(messages).await,
             }
-            Some(Err(err)) if err.is_failover_worthy() => {
-                self.secondary.stream_chat_completion(messages).await
-            }
-            Some(Err(err)) => Ok(stream::once(async move { Err(err) }).boxed()),
         }
     }
 }
@@ -182,6 +188,36 @@ mod tests {
     async fn fails_over_when_the_stream_errors_before_any_token() {
         let provider = FallbackProvider::new(
             primary(|| answer("primary"), || tokens(vec![Err(api(429))])),
+            secondary(|| answer("secondary"), || tokens(vec![Ok("hola".into())])),
+        );
+
+        let collected =
+            drain(provider.stream_chat_completion(&[ChatMessage::user("hi")]).await.expect("stream")).await;
+        assert_eq!(collected.len(), 1);
+        assert_eq!(collected[0].as_ref().expect("token"), "hola");
+    }
+
+    #[tokio::test]
+    async fn an_empty_first_delta_does_not_disable_failover() {
+        // OpenAI-compatible streams open with a role-only chunk, which decodes to "".
+        let provider = FallbackProvider::new(
+            primary(
+                || answer("primary"),
+                || tokens(vec![Ok(String::new()), Err(api(503))]),
+            ),
+            secondary(|| answer("secondary"), || tokens(vec![Ok("hola".into())])),
+        );
+
+        let collected =
+            drain(provider.stream_chat_completion(&[ChatMessage::user("hi")]).await.expect("stream")).await;
+        assert_eq!(collected.len(), 1);
+        assert_eq!(collected[0].as_ref().expect("token"), "hola");
+    }
+
+    #[tokio::test]
+    async fn a_stream_with_no_visible_content_falls_back() {
+        let provider = FallbackProvider::new(
+            primary(|| answer("primary"), || tokens(vec![Ok(String::new())])),
             secondary(|| answer("secondary"), || tokens(vec![Ok("hola".into())])),
         );
 

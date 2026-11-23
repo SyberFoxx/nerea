@@ -166,9 +166,17 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             let primary = build_provider(&provider_id, model.as_deref(), &store)?;
             let provider: Arc<dyn AiProvider> = match config.fallback.as_ref() {
                 Some(fallback) if !no_fallback => {
-                    let secondary =
-                        build_provider(&fallback.provider, fallback.model.as_deref(), &store)?;
-                    Arc::new(FallbackProvider::new(primary, secondary))
+                    // A fallback without a usable key is optional, not fatal.
+                    match build_provider(&fallback.provider, fallback.model.as_deref(), &store) {
+                        Ok(secondary) => Arc::new(FallbackProvider::new(primary, secondary)),
+                        Err(err) => {
+                            eprintln!(
+                                "warning: fallback `{}` unavailable, continuing without it: {err}",
+                                fallback.provider
+                            );
+                            primary
+                        }
+                    }
                 }
                 _ => primary,
             };

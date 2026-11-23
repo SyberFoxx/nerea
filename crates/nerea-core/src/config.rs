@@ -107,7 +107,18 @@ impl Config {
                 source,
             })?;
         }
-        fs::write(path, self.to_toml()?).map_err(|source| ConfigError::Write {
+        // Write beside the target and rename: a crash mid-write cannot truncate
+        // a config the user already had.
+        let mut staging = path.as_os_str().to_owned();
+        staging.push(".tmp");
+        let staging = PathBuf::from(staging);
+
+        fs::write(&staging, self.to_toml()?).map_err(|source| ConfigError::Write {
+            path: staging.display().to_string(),
+            source,
+        })?;
+
+        fs::rename(&staging, path).map_err(|source| ConfigError::Write {
             path: path.display().to_string(),
             source,
         })
@@ -140,6 +151,34 @@ mod tests {
         let text = config.to_toml().expect("encode");
         let parsed: Config = toml::from_str(&text).expect("decode");
         assert_eq!(parsed, config);
+    }
+
+    fn temp_path(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("nerea-config-test-{}-{name}.toml", std::process::id()))
+    }
+
+    #[test]
+    fn save_round_trips_without_secrets_and_leaves_no_staging_file() {
+        let path = temp_path("roundtrip");
+        let _ = fs::remove_file(&path);
+
+        Config::default().save_to(&path).expect("save");
+        let text = fs::read_to_string(&path).expect("read");
+        assert!(!text.to_lowercase().contains("api_key"), "keys never live in config");
+        assert_eq!(Config::load_from(&path).expect("reload"), Config::default());
+
+        let staged = PathBuf::from(format!("{}.tmp", path.display()));
+        assert!(!staged.exists(), "atomic write must not leave a staging file");
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn malformed_file_is_an_error_not_a_default() {
+        let path = temp_path("malformed");
+        fs::write(&path, "provider =").expect("write fixture");
+        assert!(Config::load_from(&path).is_err(), "a broken config must not be ignored");
+        let _ = fs::remove_file(&path);
     }
 
     #[test]
