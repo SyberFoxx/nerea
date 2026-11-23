@@ -111,6 +111,14 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             let base_url =
                 env::var("NEREA_BASE_URL").unwrap_or_else(|_| preset.base_url.to_owned());
             let model = model.unwrap_or_else(|| preset.default_model.to_owned());
+            if !preset.allows_model(&model) {
+                return Err(format!(
+                    "model `{model}` is not allowed for `{}` (allowed: {})",
+                    preset.id,
+                    preset.models.join(", ")
+                )
+                .into());
+            }
             let api_key = resolve_key(preset, &store)?;
 
             let chat = OpenAiCompatProvider::new(preset.id, base_url, api_key, model)?;

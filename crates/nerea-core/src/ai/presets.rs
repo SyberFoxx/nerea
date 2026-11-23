@@ -20,13 +20,8 @@ pub const PRESETS: &[ProviderPreset] = &[
         base_url: "https://opencode.ai/inference/go/openai/v1",
         env_var: "OPENCODE_API_KEY",
         default_model: "deepseek-v4.1-flash",
-        models: &[
-            "deepseek-v4.1-flash",
-            "deepseek-v4-pro",
-            "qwen3.8-max",
-            "glm-5.3",
-            "minimax-m3",
-        ],
+        // Pinned on purpose: OpenCode Go is only used for this model.
+        models: &["deepseek-v4.1-flash"],
     },
     ProviderPreset {
         id: "deepseek",
@@ -38,10 +33,37 @@ pub const PRESETS: &[ProviderPreset] = &[
     },
 ];
 
+impl ProviderPreset {
+    /// Guards against silently billing a model the project does not use.
+    pub fn allows_model(&self, model: &str) -> bool {
+        self.models.contains(&model)
+    }
+}
+
 pub fn all() -> &'static [ProviderPreset] {
     PRESETS
 }
 
 pub fn find(id: &str) -> Option<&'static ProviderPreset> {
     PRESETS.iter().find(|preset| preset.id == id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn opencode_go_is_pinned_to_a_single_model() {
+        let preset = find("opencode-go").expect("preset");
+        assert_eq!(preset.models, &["deepseek-v4.1-flash"]);
+        assert!(preset.allows_model("deepseek-v4.1-flash"));
+        assert!(!preset.allows_model("deepseek-v4-pro"));
+    }
+
+    #[test]
+    fn deepseek_accepts_only_its_own_models() {
+        let preset = find("deepseek").expect("preset");
+        assert!(preset.allows_model("deepseek-v4-flash"));
+        assert!(!preset.allows_model("deepseek-v4.1-flash"));
+    }
 }
