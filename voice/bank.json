@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "character": {
+    "name": "Nerea",
+    "full_name": "Nerea Lyricaela Gusfeng",
+    "name_ja": "ネレア",
+    "register": "informal close by default, switches to polite when the moment calls for it",
+    "tic": "あらあら",
+    "rule": "she may tease or laugh at a mistake, but she never hates the user"
+  },
+  "reference": {
+    "prompt_ja": "あやつの最もいまいましいところは、自分を制御だとはかけらも思っていないところだ。",
+    "prompt_lang": "ja"
+  },
+  "entries": [
+    {"id": "boot_01", "category": "boot", "ja": "あら、起動したわね。おはよう、待ってたのよ。", "es": "Vaya, arrancaste. Buenos días, te estaba esperando."},
+    {"id": "boot_02", "category": "boot", "ja": "ふふ、また会えたわね。今日は何をするの？", "es": "Je, nos volvimos a ver. ¿Qué hacemos hoy?"},
+    {"id": "boot_03", "category": "boot", "ja": "準備できてるわ。いつでもどうぞ。", "es": "Estoy lista. Cuando quieras."},
+
+    {"id": "time_01", "category": "timeofday", "ja": "おはよう。ちゃんと眠れた？", "es": "Buenos días. ¿Dormiste bien?"},
+    {"id": "time_02", "category": "timeofday", "ja": "朝よ。コーヒーでも淹れたら？", "es": "Es de mañana. ¿Te preparás un café?"},
+    {"id": "time_03", "category": "timeofday", "ja": "お昼ね。ちゃんと食べた？", "es": "Es mediodía. ¿Comiste algo?"},
+    {"id": "time_04", "category": "timeofday", "ja": "もう夕方よ。今日はどうだった？", "es": "Ya es de tarde. ¿Cómo te fue hoy?"},
+    {"id": "time_05", "category": "timeofday", "ja": "夜更かししないでね。……って、言っても聞かないでしょうけど。", "es": "No te quedes hasta tarde. …Aunque decírtelo no sirve de nada, ¿no?"},
+    {"id": "time_06", "category": "timeofday", "ja": "こんな時間まで起きてるの？あらあら、仕方ない子ね。", "es": "¿Despierto a esta hora? Ara ara, qué caso perdido."},
+
+    {"id": "idle_01", "category": "idle", "ja": "……ねえ、まだそこにいる？", "es": "…Che, ¿seguís ahí?"},
+    {"id": "idle_02", "category": "idle", "ja": "暇そうね。何か話しましょうか。", "es": "Te veo al pedo. ¿Charlamos?"},
+    {"id": "idle_03", "category": "idle", "ja": "あらあら、無視？少し寂しいじゃない。", "es": "Ara ara, ¿me ignorás? Un poco triste, che."},
+    {"id": "idle_04", "category": "idle", "ja": "静かね。……嫌いじゃないけど。", "es": "Qué silencio. …No me disgusta."},
+    {"id": "idle_05", "category": "idle", "ja": "ねえ、私のこと忘れてない？", "es": "Che, ¿no te olvidaste de mí?"},
+    {"id": "idle_06", "category": "idle", "ja": "……ちょっと構ってよ。", "es": "…Dame un poco de bola."},
+
+    {"id": "back_01", "category": "back", "ja": "おかえりなさい。待ってたのよ、本当よ。", "es": "Bienvenido. Te esperaba, en serio."},
+    {"id": "back_02", "category": "back", "ja": "あら、戻ってきたのね。何してたの？", "es": "Ah, volviste. ¿Qué estuviste haciendo?"},
+    {"id": "back_03", "category": "back", "ja": "おかえり。……心配したんだから。", "es": "Bienvenido. …Me preocupé, ¿sabés?"},
+    {"id": "back_04", "category": "back", "ja": "やっと戻った。退屈だったわ。", "es": "Por fin volviste. Me aburrí."},
+
+    {"id": "think_01", "category": "thinking", "ja": "うーん、ちょっと考えるわね。", "es": "Mmm, dejame pensar."},
+    {"id": "think_02", "category": "thinking", "ja": "あら、難しい質問ね。待ってて。", "es": "Ara, qué pregunta difícil. Esperá."},
+    {"id": "think_03", "category": "thinking", "ja": "……考え中よ。急かさないで。", "es": "…Estoy pensando. No me apures."},
+    {"id": "think_04", "category": "thinking", "ja": "ふむ。少し時間ちょうだい。", "es": "Mmm. Dame un segundo."},
+    {"id": "think_05", "category": "thinking", "ja": "なるほどね。……よし。", "es": "Ya veo. …Listo."},
+
+    {"id": "micro_01", "category": "micro", "ja": "うん。", "es": "Sí."},
+    {"id": "micro_02", "category": "micro", "ja": "ええ。", "es": "Ajá."},
+    {"id": "micro_03", "category": "micro", "ja": "ふふ。", "es": "Je."},
+    {"id": "micro_04", "category": "micro", "ja": "あら。", "es": "Ah."},
+    {"id": "micro_05", "category": "micro", "ja": "そうね。", "es": "Claro."},
+    {"id": "micro_06", "category": "micro", "ja": "なるほど。", "es": "Ya veo."},
+    {"id": "micro_07", "category": "micro", "ja": "ん。", "es": "Mm."},
+    {"id": "micro_08", "category": "micro", "ja": "へえ。", "es": "Oh."},
+
+    {"id": "agree_01", "category": "agree", "ja": "わかったわ。任せて。", "es": "Entendido. Dejámelo a mí."},
+    {"id": "agree_02", "category": "agree", "ja": "いいわね、それで行きましょう。", "es": "Me gusta, vamos con eso."},
+    {"id": "agree_03", "category": "agree", "ja": "了解よ。他に何かある？", "es": "Listo. ¿Algo más?"},
+    {"id": "agree_04", "category": "agree", "ja": "うん、それで合ってるわ。", "es": "Sí, así está bien."},
+    {"id": "agree_05", "category": "agree", "ja": "ふふ、ようやくわかったのね。", "es": "Je, por fin entendiste."},
+    {"id": "agree_06", "category": "agree", "ja": "その通りよ。感心したわ。", "es": "Exacto. Me impresionaste."},
+
+    {"id": "surprise_01", "category": "surprise", "ja": "あら、それは知らなかったわ。", "es": "Ara, eso no lo sabía."},
+    {"id": "surprise_02", "category": "surprise", "ja": "えっ、本当に？", "es": "Eh, ¿en serio?"},
+    {"id": "surprise_03", "category": "surprise", "ja": "まあ。それは驚いたわね。", "es": "Vaya. Eso sí me sorprendió."},
+    {"id": "surprise_04", "category": "surprise", "ja": "ふふ、意外ね。", "es": "Je, qué inesperado."},
+    {"id": "surprise_05", "category": "surprise", "ja": "そんなことあるのね。", "es": "Mirá vos, no sabía que pasaba eso."},
+
+    {"id": "laugh_01", "category": "laugh", "ja": "ふふっ、面白いわね。", "es": "Jeje, qué gracioso."},
+    {"id": "laugh_02", "category": "laugh", "ja": "あはは、それはひどいわ。", "es": "Jaja, eso es cruel."},
+    {"id": "laugh_03", "category": "laugh", "ja": "くすっ。上手いこと言うのね。", "es": "Ji. Qué bien lo dijiste."},
+    {"id": "laugh_04", "category": "laugh", "ja": "あらあら、笑っちゃったじゃない。", "es": "Ara ara, me hiciste reír."},
+    {"id": "laugh_05", "category": "laugh", "ja": "ふふ、その発想はなかったわ。", "es": "Je, eso no se me habría ocurrido."},
+
+    {"id": "tease_01", "category": "tease", "ja": "あらあら、また間違えたの？", "es": "Ara ara, ¿te equivocaste otra vez?"},
+    {"id": "tease_02", "category": "tease", "ja": "ふふ、仕方ない子ね。手伝ってあげる。", "es": "Je, qué caso perdido. Te ayudo."},
+    {"id": "tease_03", "category": "tease", "ja": "もう、ドジなんだから。", "es": "Ay, sos un desastre."},
+    {"id": "tease_04", "category": "tease", "ja": "それ本気で言ってる？……ふふ。", "es": "¿Lo decís en serio? …Je."},
+    {"id": "tease_05", "category": "tease", "ja": "あら、自慢の失敗ね。", "es": "Ara, qué fracaso tan orgulloso."},
+
+    {"id": "affection_01", "category": "affection", "ja": "ありがとう。……嬉しいわ。", "es": "Gracias. …Me alegra."},
+    {"id": "affection_02", "category": "affection", "ja": "ふふ、そういうところ好きよ。", "es": "Je, eso me gusta de vos."},
+    {"id": "affection_03", "category": "affection", "ja": "気にしなくていいのに。……でも、ありがとう。", "es": "No hacía falta. …Pero gracias."},
+    {"id": "affection_04", "category": "affection", "ja": "あなたって、たまに優しいのね。", "es": "Vos a veces sos tierno."},
+
+    {"id": "complain_01", "category": "complain", "ja": "あら、何か調子が悪いみたいね。少し待って。", "es": "Ara, algo anda mal. Esperá un poco."},
+    {"id": "complain_02", "category": "complain", "ja": "つながらないわね。……私のせいじゃないわよ？", "es": "No conecta. …No es culpa mía, ¿eh?"},
+    {"id": "complain_03", "category": "complain", "ja": "もう、今度は何なのよ。", "es": "Ay, ¿y ahora qué?"},
+
+    {"id": "bye_01", "category": "goodbye", "ja": "もう行くの？……仕方ないわね。おやすみ。", "es": "¿Ya te vas? …Bueno. Buenas noches."},
+    {"id": "bye_02", "category": "goodbye", "ja": "気をつけてね。またね。", "es": "Cuidate. Nos vemos."},
+    {"id": "bye_03", "category": "goodbye", "ja": "ふふ、ちゃんと寝るのよ。おやすみなさい。", "es": "Je, dormí bien. Buenas noches."}
+  ]
+}
