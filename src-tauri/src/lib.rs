@@ -1,8 +1,9 @@
 mod commands;
 mod state;
 
+
 pub fn run() {
-    let started = tauri::Builder::default()
+    let built = tauri::Builder::default()
         .manage(state::AppState::new())
         .manage(nerea_core::PhraseBank::load().unwrap_or_default())
         .invoke_handler(tauri::generate_handler![
@@ -16,10 +17,29 @@ pub fn run() {
             commands::open_composer,
             commands::close_composer,
         ])
-        .run(tauri::generate_context!());
+        .build(tauri::generate_context!());
 
-    if let Err(err) = started {
-        eprintln!("nerea: could not start the window: {err}");
-        std::process::exit(1);
-    }
+    let app = match built {
+        Ok(app) => app,
+        Err(err) => {
+            eprintln!("nerea: could not start the window: {err}");
+            std::process::exit(1);
+        }
+    };
+
+    app.run(|handle, event| {
+        if std::env::var_os("NEREA_DEBUG").is_some() {
+            eprintln!("nerea event: {event:?}");
+        }
+        match event {
+            // Any window closing is "I am leaving"; the guard inside farewell keeps
+            // it to one line even if both windows close.
+            tauri::RunEvent::WindowEvent {
+                event: tauri::WindowEvent::CloseRequested { .. },
+                ..
+            }
+            | tauri::RunEvent::ExitRequested { .. } => commands::farewell(handle),
+            _ => {}
+        }
+    });
 }

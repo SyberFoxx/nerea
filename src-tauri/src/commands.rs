@@ -247,7 +247,7 @@ fn wav_duration_ms(path: &Path) -> Option<u64> {
     None
 }
 
-fn speak(app: &AppHandle, bank: &PhraseBank, category: &str) -> Option<Said> {
+pub(crate) fn speak(app: &AppHandle, bank: &PhraseBank, category: &str) -> Option<Said> {
     let phrase = bank.pick(category)?;
     let path = bank_dir().join(format!("{}.wav", phrase.id));
     let played = path.exists();
@@ -268,6 +268,44 @@ fn speak(app: &AppHandle, bank: &PhraseBank, category: &str) -> Option<Said> {
 
     let _ = app.emit(SAY_EVENT, &said);
     Some(said)
+}
+
+/// One short extra call: the tone of the reply decides which reaction plays.
+async fn mood(provider: &std::sync::Arc<dyn nerea_core::AiProvider>, reply: &str) -> Option<&'static str> {
+    const PROMPT: &str = "Clasificá el tono de la respuesta de un asistente en UNA sola palabra. \
+Opciones: neutral, bromista, carinosa, sorprendida. Respondé solo la palabra, sin explicar.";
+
+    let request = nerea_core::ChatRequest {
+        messages: vec![
+            nerea_core::ChatMessage::system(PROMPT),
+            nerea_core::ChatMessage::user(reply.chars().take(600).collect::<String>()),
+        ],
+        session_id: "mood".to_owned(),
+    };
+
+    let answer = provider.chat_completion(&request).await.ok()?;
+    let word = answer.content.trim().to_lowercase();
+
+    if word.contains("bromista") {
+        Some("tease")
+    } else if word.contains("carinosa") || word.contains("cariñosa") {
+        Some("affection")
+    } else if word.contains("sorprendida") {
+        Some("surprise")
+    } else {
+        None
+    }
+}
+
+/// Plays one goodbye line when the app is closing. Detached audio outlives us.
+pub(crate) fn farewell(app: &AppHandle) {
+    static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if SAID.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    if let Some(bank) = app.try_state::<PhraseBank>() {
+        speak(app, &bank, "goodbye");
+    }
 }
 
 #[tauri::command]
@@ -367,6 +405,12 @@ pub async fn send_message(
 
     let turns = state.finish_turn(&reply).await;
     emit_state(&app, "idle");
+
+    if !cancelled && reply.chars().count() > 12 {
+        if let Some(category) = mood(&provider, &reply).await {
+            speak(&app, &bank, category);
+        }
+    }
 
     Ok(Reply {
         text: reply,

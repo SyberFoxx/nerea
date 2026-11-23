@@ -61,7 +61,8 @@ transparent avatar overlay that seats itself on the focused window.
 - [x] Real art: 15 single-frame reactions from the reference sheet
 - [x] Phrase bank wired: `say` command picks a line, plays the WAV and emits `nerea://say`
 - [x] The avatar window shows the matching frame plus the Spanish subtitle
-- [x] Triggers today: app start, 4 minutes idle, provider failure
+- [x] Triggers: app start, 4 minutes idle, provider failure, tone of the reply
+      (`tease` / `affection` / `surprise`), and goodbye when a window closes
 
 ## Avatar wiring
 
@@ -69,8 +70,11 @@ transparent avatar overlay that seats itself on the focused window.
 (turn lifecycle) and `nerea://say` (a spoken bank line). The bank is embedded in `nerea-core`; the
 WAVs are machine-local and read from `assets/voice/bank` (override with `NEREA_BANK_DIR`).
 
-Spoken lines today: **app start**, **4 minutes idle**, **provider failure**. The rest of the
-categories are already rendered and waiting for their triggers.
+Spoken lines fire on: **app start**, **4 minutes idle**, **provider failure**, **the tone of the
+reply** (one extra small call classifies it as bromista / cariñosa / sorprendida), and **closing a
+window**. The remaining categories are rendered and waiting for their triggers.
+
+Spontaneous lines also appear in the chat log as muted italics, so a remark never goes unseen.
 
 ## Avatar art
 

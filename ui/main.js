@@ -82,6 +82,12 @@ async function start() {
     scrollToEnd();
   });
 
+  // Spontaneous lines are not part of the conversation: show them muted.
+  await tauri.event.listen("nerea://say", (event) => {
+    if (!event.payload?.es) return;
+    addBubble("murmur", event.payload.es);
+  });
+
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     const text = input.value.trim();
