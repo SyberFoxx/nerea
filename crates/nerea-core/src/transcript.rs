@@ -43,7 +43,14 @@ impl Transcript {
     }
 
     /// Default store: `~/.local/share/nerea/conversation.jsonl`.
+    ///
+    /// `NEREA_DATA_DIR` points it somewhere else, which is how the tests and a
+    /// throwaway session keep their history apart.
     pub fn open() -> Self {
+        if let Ok(dir) = std::env::var("NEREA_DATA_DIR") {
+            return Self::new(PathBuf::from(dir).join("conversation.jsonl"));
+        }
+
         let path = ProjectDirs::from("", "", "nerea")
             .map(|dirs| dirs.data_dir().join("conversation.jsonl"))
             .unwrap_or_else(|| PathBuf::from("conversation.jsonl"));

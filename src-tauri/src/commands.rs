@@ -374,10 +374,23 @@ pub struct Said {
     pub played: bool,
 }
 
-fn bank_dir() -> PathBuf {
-    std::env::var("NEREA_BANK_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("assets/voice/bank"))
+/// Where the rendered lines live.
+///
+/// A packaged build cannot read the checkout, so it looks next to the bundle's
+/// resources before falling back to the working directory.
+fn bank_dir(app: &AppHandle) -> PathBuf {
+    if let Ok(dir) = std::env::var("NEREA_BANK_DIR") {
+        return PathBuf::from(dir);
+    }
+
+    if let Ok(resources) = app.path().resource_dir() {
+        let candidate = resources.join("voice").join("bank");
+        if candidate.is_dir() {
+            return candidate;
+        }
+    }
+
+    PathBuf::from("assets/voice/bank")
 }
 
 /// Reads duration straight from the WAV headers instead of spawning ffprobe.
@@ -421,7 +434,7 @@ fn wav_duration_ms(path: &Path) -> Option<u64> {
 
 pub(crate) fn speak(app: &AppHandle, bank: &PhraseBank, category: &str) -> Option<Said> {
     let phrase = bank.pick(category)?;
-    let path = bank_dir().join(format!("{}.wav", phrase.id));
+    let path = bank_dir(app).join(format!("{}.wav", phrase.id));
     let played = path.exists();
 
     if played {
@@ -578,10 +591,10 @@ pub async fn send_message(
     let turns = state.finish_turn(&reply).await;
     emit_state(&app, "idle");
 
-    if !cancelled && reply.chars().count() > 12 {
-        if let Some(category) = mood(&provider, &reply).await {
-            speak(&app, &bank, category);
-        }
+    if !cancelled && reply.chars().count() > 12
+        && let Some(category) = mood(&provider, &reply).await
+    {
+        speak(&app, &bank, category);
     }
 
     Ok(Reply {

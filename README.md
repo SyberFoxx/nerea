@@ -1,132 +1,146 @@
-# nerea
+<p align="center">
+  <img src="docs/brand/banner.png" alt="Nerea — compañera de escritorio con voz propia" width="100%" />
+</p>
 
-An AI desktop companion for Linux: a Rust core, a Tauri shell, and a static-image avatar.
+<p align="center">
+  <a href="#quick-start"><img alt="version" src="https://img.shields.io/badge/version-0.2.0-2ec4b6?style=flat-square" /></a>
+  <img alt="rust" src="https://img.shields.io/badge/Rust-2024-8b5cf6?style=flat-square&logo=rust&logoColor=white" />
+  <img alt="tauri" src="https://img.shields.io/badge/Tauri-2-8b5cf6?style=flat-square&logo=tauri&logoColor=white" />
+  <img alt="linux" src="https://img.shields.io/badge/Linux-x86__64-2ec4b6?style=flat-square&logo=linux&logoColor=white" />
+  <img alt="license" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-94a3b8?style=flat-square" />
+</p>
+
+<p align="center">
+  <img src="docs/brand/logo-512.png" alt="Nerea" width="120" />
+</p>
+
+Nerea lives on your desktop as a single portrait. Double-click her and a chat opens attached to
+her body; close it and she goes back to being a small figure sitting on the corner of your window.
+Her text is Spanish, her voice is Japanese, and she remembers the conversation after a restart.
+
+Rust core, Tauri 2 shell, static art. No Electron, no WebGL, no JavaScript in the brain.
 Conceptually inspired by [CapriCore](https://github.com/CapriChooms/CapriCore), deliberately not
-its stack — no Electron, no WebGL, no JavaScript in the brain.
-
-**Status: phase 4 in progress.** `cargo run -p nerea-desktop` opens the chat window plus a small
-transparent avatar overlay that seats itself on the focused window.
+its stack.
 
 ---
 
-## Phases
+## Contents
 
-| # | Phase | State | Deliverable |
-|---|-------|-------|-------------|
-| 1 | Core + providers | `done` | Workspace, `AiProvider` trait, shared OpenAI-compatible transport, keyring, CLI harness |
-| 2 | Conversation | `done` | Turn history with a prompt budget, config file, provider failover |
-| 3 | Tauri shell | `done` | Chat window + avatar panel, IPC commands, streaming events |
-| 4 | Static-image avatar | `wip` | Overlay window, frame manifest, state machine, docking |
-| 5 | Memory | `pending` | SQLite turn store plus rolling summaries |
-
-### Phase 1 — Core + providers
-
-- [x] Cargo workspace: `nerea-core` (UI-agnostic) + `nerea-cli` (headless harness)
-- [x] `AiProvider` trait, `dyn`-compatible via `async-trait` + `BoxStream`
-- [x] One OpenAI-compatible transport shared by every provider
-- [x] Own SSE parser: split chunks, CRLF boundaries, unterminated final event
-- [x] API keys in the OS keyring (Secret Service over D-Bus on Linux)
-- [x] Wire parsing pinned by an in-process mock server — no network in tests
-
-### Phase 2 — Conversation
-
-- [x] `Conversation`: history, system prompt, oldest-first trimming under a token budget
-- [x] `Config` at `~/.config/nerea/config.toml`, written atomically; keys never live there
-- [x] `FallbackProvider`: fails over on network, 401/403/408/429/5xx
-- [x] Streaming fails over only before the first *visible* token
-- [x] `ChatResponse.provider` makes failover observable to the UI
-- [x] A configured fallback without a key degrades to a warning, not a dead end
-- [x] `nerea config show|path|init` and an interactive `chat` REPL
-- [x] Gateway contract: own `User-Agent` plus a per-conversation `x-opencode-session` header
-- [x] Verified end to end: real streaming and non-streaming calls against `opencode-go`
-
-### Phase 3 — Tauri shell
-
-- [x] `src-tauri` workspace member + `ui/` frontend (plain HTML/CSS/JS, no bundler)
-- [x] Commands: `status`, `send_message`, `cancel_stream`, `reset_conversation`
-- [x] Streaming to the frontend as `nerea://delta` events
-- [x] State locks are never held across a stream, so cancel and status stay responsive
-- [x] `nerea-core` stays free of any Tauri dependency
-- [ ] `thinking` indicator before the first token (currently the bubble simply stays empty)
-
-### Phase 4 — Static-image avatar
-
-- [x] Second window: transparent, undecorated, always on top, 176 × 256
-- [x] Frame manifest (`idle`, `thinking`, `talking`, `error` → frame lists)
-- [x] State machine driven by the turn lifecycle: thinking → talking → idle, error on failure
-- [x] Docking: seats on the bottom-right corner of the focused window (`hyprctl clients -j`)
-- [x] Placeholder frames with a visible fallback if art fails to load
-- [x] Composer bubble next to the avatar: right-click her, type, Escape to close
-- [ ] Re-dock automatically when the focused window changes
-- [x] Real art: 15 single-frame reactions from the reference sheet
-- [x] Phrase bank wired: `say` command picks a line, plays the WAV and emits `nerea://say`
-- [x] The avatar window shows the matching frame plus the Spanish subtitle
-- [x] Triggers: app start, 4 minutes idle, provider failure, tone of the reply
-      (`tease` / `affection` / `surprise`), and goodbye when a window closes
-
-## Avatar wiring
-
-`ui/avatar/manifest.json` maps a state to one PNG. The avatar window listens on `nerea://state`
-(turn lifecycle) and `nerea://say` (a spoken bank line). The bank is embedded in `nerea-core`; the
-WAVs are machine-local and read from `assets/voice/bank` (override with `NEREA_BANK_DIR`).
-
-Spoken lines fire on: **app start**, **4 minutes idle**, **provider failure**, **the tone of the
-reply** (one extra small call classifies it as bromista / cariñosa / sorprendida), and **closing a
-window**. The remaining categories are rendered and waiting for their triggers.
-
-Spontaneous lines also appear in the chat log as muted italics, so a remark never goes unseen.
-
-## Avatar art
-
-Frames live in `ui/avatar/` and are listed in `ui/avatar/manifest.json`. Keep the state names and
-the canvas, drop in your own files, nothing else changes:
-
-```json
-"talking": { "fps": 6, "frames": ["avatar/talking-0.png", "avatar/talking-1.png"] }
-```
-
-The pose should be a seated half-body anchored to the bottom edge: the window sits on the corner of
-the active window, so feet and seat line read as "sitting on it".
-
-Talking to her without the chat window: **right-click the avatar**. A bubble and input open next to
-her, the reply streams in there, Escape closes it. Left-drag moves her, double-click re-docks.
-
-On Hyprland the overlay needs a rule to stay pinned across workspaces. Both windows share the
-`nerea-desktop` class, so match on the title:
-
-```conf
-windowrulev2 = pin,title:^(nerea-avatar)$
-windowrulev2 = noborder,title:^(nerea-avatar)$
-windowrulev2 = noshadow,title:^(nerea-avatar)$
-windowrulev2 = noanim,title:^(nerea-avatar)$
-```
-
-### Phase 5 — Memory
-
-- [ ] SQLite store of turns, keyed by conversation
-- [ ] Rolling summary so context survives trimming
+- [What she does](#what-she-does)
+- [Architecture](#architecture)
+- [Quick start](#quick-start)
+- [Memory](#memory)
+- [Providers](#providers)
+- [Voice](#voice)
+- [Commands](#commands)
+- [Versions](#versions)
+- [Design decisions](#design-decisions)
+- [Known gaps](#known-gaps)
+- [Conventions](#conventions)
 
 ---
+
+## What she does
+
+<p align="center">
+  <img src="docs/brand/screenshot-chat.png" alt="The chat panel attached to her portrait" width="420" />
+</p>
+
+**One window, two shapes.** Her portrait is `176 × 256`; the chat panel grows the same window up and
+to the left, keeping her feet exactly where they were. Nothing else opens on launch.
+
+| | |
+|---|---|
+| **Interaction** | double-click her to open the panel, drag her to move, right-click for the menu, `Esc` to close |
+| **Reactions** | 15 single-frame expressions: `idle`, `tease`, `jealous`, `flirt`, `affection`, `laugh`, `surprise`, `complain`, `sleepy` … |
+| **Voice** | a cloned Japanese voice for short lines; Spanish subtitles stay on screen |
+| **Memory** | every turn is appended to disk and reloaded on start; the full log lives in a read-only window |
+| **Triggers** | launch, first launch after history, 4 minutes idle, provider failure, the tone of the reply, closing the app |
+| **Providers** | `opencode-go` (pinned to one model) with `deepseek` as the fallback path |
+
+The character is fixed in `voice/bank.json`: Nerea Lyricaela Gusfeng, nineteen, a demon who was
+abandoned, raised as a sect killer, and is now married to Lioner — you. She is playful, possessive,
+jealous, teases your mistakes, and never hates you. Four hundred lines of personality are not worth
+a prompt if the voice bank says otherwise, so both live in the repo.
 
 ## Architecture
 
 ```
-crates/nerea-core     providers · secrets · config · conversation · factory   (no UI, no tokio)
-crates/nerea-cli      headless harness                                        (tokio, clap)
-src-tauri             Tauri 2 shell: IPC commands, event streaming
-ui                    static frontend: HTML/CSS/JS, no bundler
+crates/nerea-core     providers · secrets · config · conversation · transcript · phrase bank
+crates/nerea-cli      headless harness (clap, tokio)
+src-tauri             Tauri 2 shell: IPC commands, window placement, events
+ui                    plain HTML/CSS/JS, no bundler
+voice                 phrase bank + renderer
+docs/brand            generated logo, banner and signature
 ```
 
 A message travels like this:
 
-1. The caller pushes the new turn into `Conversation`.
+1. `send_message` pushes the turn into `Conversation` and appends it to the transcript.
 2. `Conversation::trimmed()` returns the system prompt plus the newest turns that fit the budget.
 3. `FallbackProvider` sends to the primary provider; transient failures move to the secondary.
-4. `OpenAiCompatProvider` builds the HTTP request and normalizes the wire format.
-5. Streaming deltas come back as `Result<String, ProviderError>`; the reply is pushed into history.
+4. `OpenAiCompatProvider` builds the request and normalizes the wire format.
+5. Streaming deltas arrive as `Result<String, ProviderError>`; the reply is appended to disk.
 
-Nothing above layer 2 knows which provider answered, and nothing in `nerea-core` knows a window
-exists. That is what keeps the Tauri shell swappable.
+Nothing in `nerea-core` knows a window exists. That is what keeps the shell swappable.
+
+## Quick start
+
+### Dependencies
+
+```bash
+# Arch / CachyOS
+sudo pacman -S webkit2gtk-4.1 gtk3 libsoup3 base-devel
+# Debian / Ubuntu
+sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev build-essential
+```
+
+Audio playback uses `pw-play` (PipeWire). Window placement reads `hyprctl`; on other compositors
+she simply stays where the window manager puts her.
+
+### From source
+
+```bash
+git clone https://github.com/SyberFoxx/nerea && cd nerea
+cargo run -p nerea-desktop            # debug window, logs with NEREA_DEBUG=1
+```
+
+Keys never touch a file:
+
+```bash
+cargo run -p nerea-cli -- key set opencode-go     # or export OPENCODE_API_KEY
+cargo run -p nerea-cli -- providers               # providers, models, key state
+```
+
+### Packaged build
+
+```bash
+cargo tauri build --bundles appimage     # or: npx @tauri-apps/cli@^2 build --bundles appimage
+```
+
+Artifacts land in `target/release/bundle/`. The AppImage is the portable one: it carries the binary
+and its libraries, so any x86_64 distribution with a Wayland or X11 session can run it. `.deb` and
+`.rpm` need `dpkg-deb` and `rpmbuild` on the build host; they are not built on Arch by default.
+
+The rendered voice bank is machine-local on purpose (20 MB of cloned voice), so a packaged build
+points at it explicitly:
+
+```bash
+NEREA_BANK_DIR=/path/to/nerea/assets/voice/bank ./nerea_0.2.0_amd64.AppImage
+```
+
+Without it the app runs and stays silent: subtitles still appear.
+
+## Memory
+
+The conversation is one JSON line per turn at `~/.local/share/nerea/conversation.jsonl` (override
+with `NEREA_DATA_DIR`). On start the newest 400 messages are restored into the prompt, so she picks
+up where you stopped talking. Nothing is summarized yet: the prompt keeps the newest turns that fit
+the 8k estimate, and the full transcript stays readable in the history window.
+
+`Borrar memoria` in the panel menu clears both the in-memory conversation and the file. The history
+window shows the stored turns, the running message count and estimated tokens — estimates on
+purpose, four characters per token, because the budget is a safety net rather than an invoice.
 
 ## Providers
 
@@ -135,16 +149,12 @@ exists. That is what keeps the Tauri shell swappable.
 | `opencode-go` | `https://opencode.ai/inference/go/openai/v1` | `deepseek-v4.1-flash` **only** |
 | `deepseek` | `https://api.deepseek.com` | `deepseek-v4-flash`, `deepseek-v4-pro`, `deepseek-flash` |
 
-`opencode-go` is pinned on purpose: this project uses exactly one model through it. An unknown
-`--model` fails locally, before any request is billed. DeepSeek direct is the fallback path.
+`opencode-go` is pinned on purpose: this project uses exactly one model through it, and an unknown
+`--model` fails locally before anything is billed. OpenCode Go also demands a client `User-Agent`
+(`nerea/<version>`) and a stable `x-opencode-session` per conversation; requests without them are
+rejected with `400`. Both headers are covered by tests.
 
-OpenCode Go requires two things beyond an API key: a client-specific `User-Agent`
-(`nerea/<version>`) and a stable session id in `x-opencode-session`, one per conversation. Requests
-without them are rejected with `400`. Both are covered by tests that fail if either header changes.
-
-## Config
-
-`~/.config/nerea/config.toml` — nothing here is secret.
+Config lives at `~/.config/nerea/config.toml` and holds no secrets:
 
 ```toml
 provider = "opencode-go"
@@ -153,8 +163,35 @@ provider = "opencode-go"
 provider = "deepseek"
 ```
 
-A typo'd key is an error, not a silent default. A missing file means defaults. Writes go through a
-staging file and `rename`, so a crash cannot truncate an existing config.
+A typo'd key is an error, not a silent default. Writes go through a staging file and `rename`.
+
+## Voice
+
+The engine is machine-local and gitignored: GPT-SoVITS in a Python 3.11 venv under `tools/voice/`
+(~12 GB with weights). The reference clip is a real person's voice and never leaves the machine.
+
+```bash
+tools/voice/.venv/bin/python tools/voice/serve_tts.py   # 127.0.0.1:9880
+tools/voice/.venv/bin/python voice/render_bank.py        # render the phrase bank (resumable)
+```
+
+`s serve_tts.py` exists because torchaudio 2.9+ delegates audio I/O to torchcodec, whose wheels do
+not load against the CUDA 12.8 build the RTX 50 series needs; the launcher routes `load`/`save`
+through soundfile instead.
+
+**Measured latency (RTX 5060, 8 GB):** roughly 3.5× realtime synthesis plus a fixed ~15 s per
+request, which points at per-request work (model reload or reference-feature recompute) rather than
+the autoregressive loop. That is why the app speaks from a **pre-rendered phrase bank** of 84 lines:
+instant, free at runtime, and enough for every reaction. Novel sentences keep using the live engine
+once the fixed cost is gone.
+
+| path | size | needed for |
+|---|---|---|
+| `tools/voice/.venv` | 7.9 GB | running the engine |
+| `tools/voice/gpt-sovits` (weights) | 4.7 GB | running the engine |
+| `assets/voice` | 36 MB | reference clip and rendered lines |
+
+Deleting `tools/voice` frees about 12.6 GB. Nerea keeps working; voice simply stops.
 
 ## Commands
 
@@ -164,112 +201,54 @@ cargo run -p nerea-cli -- key set opencode-go    # or export OPENCODE_API_KEY
 cargo run -p nerea-cli -- chat hola              # one shot
 cargo run -p nerea-cli -- chat --stream hola     # one shot, streamed
 cargo run -p nerea-cli -- chat                   # REPL (:quit, :reset)
-cargo run -p nerea-cli -- config show
+cargo run -p nerea-cli -- config show|path|init
 
-cargo run -p nerea-desktop                      # the window
+cargo run -p nerea-desktop                       # the app
+NEREA_DEBUG=1 cargo run -p nerea-desktop         # log window and run events
+
+cargo test                                       # 52 tests, no network
+cargo clippy --all-targets -- -D warnings
 ```
 
-## Voice (local, not in this repo)
+## Versions
 
-The voice engine is machine-local: GPT-SoVITS in a Python 3.11 venv under `tools/voice/`
-(gitignored, ~13 GB with weights). The reference clip is a real person's voice and never leaves
-`assets/voice/`.
+| version | what it is |
+|---|---|
+| `0.1.0` | core providers, conversation budget, failover, keyring, CLI harness |
+| **`0.2.0`** | one window with the attached panel, durable memory, read-only history, boot/resume lines, brand |
+| `0.3.0` | live voice for replies: faithful Japanese line, TTS, `talking` frame, subtitle |
+| `0.4.0` | PC control: files, windows, commands — each action behind an explicit confirmation |
 
-```bash
-tools/voice/.venv/bin/python tools/voice/serve_tts.py     # 127.0.0.1:9880
-curl "http://127.0.0.1:9880/tts?text=...&text_lang=ja&ref_audio_path=...&prompt_lang=ja&prompt_text=..."
-```
-
-`s serve_tts.py` exists because torchaudio 2.9+ delegates audio I/O to torchcodec, whose wheels do
-not load against the CUDA 12.8 torch build required by the RTX 50 series; the launcher routes
-`load`/`save` through soundfile instead.
-
-Design intent: the model writes Spanish, the reply is translated to one short Japanese line, and
-that line is spoken with the cloned voice. Text in Spanish, voice in Japanese.
-
-### Running the engine
-
-```bash
-tools/voice/.venv/bin/python tools/voice/serve_tts.py     # 127.0.0.1:9880, ~3.6 GB RAM + 2.8 GB VRAM
-ss -ltnp | grep 9880                                       # find it
-kill <pid>                                                 # stop it
-```
-
-`NEREA_TTS_PORT` and `NEREA_TTS_CONFIG` override the port and the weights config
-(`tts_infer.yaml` is fp16, `tts_fp32.yaml` is fp32 and was measured slower).
-
-### Measured latency (RTX 5060, 8 GB)
-
-| request | audio | wall time |
-|---|---|---|
-| 3 characters | 0.5 s | 15.6 s |
-| 26 characters | 5.0 s | 31.9 s |
-| fp32 instead of fp16 | same | ~2x slower |
-
-The synthesis itself is roughly 3.5x realtime, but a **fixed ~15 s per request** dominates even for
-three characters. That points at per-request work — model reload or reference-feature recompute —
-rather than the autoregressive loop. Instrument `api_v2.py`'s `tts_handle` and cache the reference
-features before wiring audio into the app.
-
-### Plan B: a pre-rendered phrase bank
-
-If full speech stays slow, most of the companion feeling can come from a small bank of short lines
-(greeting, thinking, surprise, agreement, goodbye, teasing) rendered once with her voice and stored
-as WAV. Playback is instant, costs nothing at runtime, and covers avatar reactions; novel sentences
-keep using the live engine.
-
-### Disk footprint
-
-| path | size | needed for |
-|---|---|---|
-| `tools/voice/.venv` | 7.9 GB | running the engine |
-| `tools/voice/gpt-sovits` (weights) | 4.7 GB | running the engine |
-| `assets/voice` | 36 MB | reference clip and samples |
-
-Deleting `tools/voice` frees about 12.6 GB. Nerea keeps working; voice simply stops.
-
-## Verification
-
-```bash
-cargo test                      # 41 tests, no network required
-cargo clippy --all-targets      # clean
-```
-
-Tests never touch the internet: the transport is exercised against an in-process `TcpListener`, and
-failover is exercised both with mock providers and with two real transports wired together.
+PC control is a recorded requirement, not an implemented one. Anything that touches your machine
+will ask first, every time; that is the only way a companion with a shell is a good idea.
 
 ## Design decisions
 
-- **`async-trait` + boxed stream, not `impl Stream` in the trait.** A registry of heterogeneous
-  providers needs `dyn`; `impl Trait` in return position is not dyn-compatible.
-- **Normalized types at the boundary.** `ChatResponse` is ours; each provider's wire format stays
-  private to its adapter.
-- **Keys in the keyring, never in config.** `keyring 4` with the `v1` feature resolves to Secret
-  Service over `zbus` on Linux — no `libdbus`, no `libsecret` build dependency.
-- **`reqwest 0.13` defaults to rustls.** No OpenSSL on the build host, no `rustls-tls` flag needed.
-- **No total timeout on streaming requests.** `connect_timeout` on the client, per-request timeout
-  only for non-streaming calls.
-- **Failover is stream-aware.** It only reissues a request before the first *visible* token; empty
-  role chunks do not count as content, and a partial answer is never re-sent.
-- **Token budget is an estimate.** Four characters per token with margin beats a per-model
-  tokenizer dependency while the budget is a safety net, not an accounting system.
-- **`nerea-core` does not depend on tokio.** It is generic over runtime; only the harness and tests
-  pick one.
-- **One factory, two front ends.** `factory::build_chain` takes an injectable `KeySource`, so the CLI
-  and the Tauri shell share provider construction and the tests run without a keyring.
+- **`async-trait` + boxed stream.** A registry of heterogeneous providers needs `dyn`; `impl Trait`
+  in return position is not dyn-compatible.
+- **Normalized types at the boundary.** `ChatResponse` is ours; each wire format stays private.
+- **Keys in the keyring, never in config.** `keyring 4` resolves to Secret Service over `zbus`.
+- **Failover is stream-aware.** It reissues only before the first *visible* token; a partial answer
+  is never re-sent.
+- **Token budget is an estimate.** Four characters per token beats a per-model tokenizer while the
+  budget is a safety net.
+- **`nerea-core` does not depend on tokio** and does not know Tauri exists.
+- **The window is placed by the compositor.** Wayland forbids clients from positioning themselves,
+  so `hyprctl` moves the window after a resize: the panel cannot be a client-side guess.
+- **GTK refuses to resize a non-resizable window**, and the compositor needs that hint to keep her
+  floating. The size therefore goes in as an identical minimum and maximum.
 - **No bundler.** Tauri serves `ui/` as static files; there is no node build step to keep green.
-- **Gateways get what they ask for.** OpenCode Go rejects requests without its own `User-Agent` and a
-  stable `x-opencode-session`. `ChatRequest` carries the session id, and the preset decides which
-  header receives it — a provider that ignores it never sees one.
+- **Brand assets are generated.** `docs/brand/make_brand.py` builds the logo, banner and signature
+  from her own art and system fonts, so they never drift from the character.
 
 ## Known gaps
 
-- `println!` in the CLI panics when stdout is closed (`nerea providers | head -1`).
-- No cap on the SSE buffer if a provider never sends an event boundary.
-- API keys are not zeroized when dropped.
+- Live speech for replies is not wired: only bank lines speak.
+- No turn summarization, so very old turns fall out of the prompt (they stay in the transcript).
 - One turn in flight at a time; the input is disabled while streaming.
 - The frontend has no automated test — it is verified by opening the window.
-- Bundle packaging (`tauri build`, `.deb`/AppImage) is untested.
+- Dock assumes Hyprland; elsewhere she stays where the window manager placed her.
+- The 15 s fixed TTS cost is unresolved.
 
 ## Conventions
 
@@ -278,3 +257,9 @@ failover is exercised both with mock providers and with two real transports wire
 - Nothing in `nerea-core` may depend on `tauri`.
 - A new provider is one entry in `ai/presets.rs`, not a new transport.
 - Artifacts (code, comments, docs) in English; conversation in the user's language.
+
+---
+
+<p align="center">
+  <img src="docs/brand/signature.png" alt="ネレア" width="240" />
+</p>
