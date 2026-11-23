@@ -92,6 +92,38 @@ body {
   font-style: italic;
 }
 
+.memory {
+  margin: 10px 16px 0;
+  border: 1px solid #245553;
+  border-left: 2px solid var(--accent);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #0f1b1a;
+  max-height: 148px;
+  overflow-y: auto;
+  flex: 0 0 auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.memory h2 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.memory p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #cdd9df;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
 .entry {
   border: 1px solid var(--line);
   border-left-width: 2px;

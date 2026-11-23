@@ -268,6 +268,10 @@ async function start() {
 
   await tauri.event.listen("nerea://say", (event) => playLine(event.payload));
 
+  await tauri.event.listen("nerea://memory", () => {
+    addBubble("murmur", "Guardé en memoria lo importante de lo que hablamos.");
+  });
+
   await tauri.event.listen("nerea://update", (event) => {
     const state = event.payload;
     const line =

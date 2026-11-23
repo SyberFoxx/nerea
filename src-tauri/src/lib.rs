@@ -12,6 +12,23 @@ pub fn run() {
 
             // Development aid: open the panel without a pointer so its layout can
             // be checked from a script. Never set in normal use.
+            // Development aid: force the summarizer once, to check it without
+            // waiting for two dozen turns.
+            if std::env::var_os("NEREA_SUMMARIZE_NOW").is_some() {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    std::thread::sleep(std::time::Duration::from_millis(1200));
+                    let state = handle.state::<state::AppState>().inner().clone();
+                    match state.ensure_provider().await {
+                        Ok(provider) => match state.summarize_if_due(&provider).await {
+                            Some(text) => eprintln!("nerea memory: {}", text.chars().take(160).collect::<String>()),
+                            None => eprintln!("nerea memory: nothing to summarize yet"),
+                        },
+                        Err(err) => eprintln!("nerea memory: no provider: {err}"),
+                    }
+                });
+            }
+
             // Development aid: run the same check the menu runs and, when asked,
             // apply it. Off unless the environment says otherwise.
             if std::env::var_os("NEREA_AUTO_UPDATE").is_some() {
@@ -33,6 +50,14 @@ pub fn run() {
                         }
                         Err(err) => eprintln!("nerea update: failed: {err}"),
                     }
+                });
+            }
+
+            if std::env::var_os("NEREA_OPEN_HISTORY").is_some() {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    std::thread::sleep(std::time::Duration::from_millis(2500));
+                    let _ = commands::open_history(handle).await;
                 });
             }
 
@@ -95,6 +120,9 @@ pub fn run() {
                     api.prevent_close();
                     if let Some(window) = handle.get_webview_window("history") {
                         let _ = window.hide();
+                    }
+                    if let Some(avatar) = handle.get_webview_window("avatar") {
+                        let _ = avatar.show();
                     }
                 }
                 _ => {}

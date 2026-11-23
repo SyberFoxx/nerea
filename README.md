@@ -161,14 +161,29 @@ Without it the app runs and stays silent: subtitles still appear.
 
 ## Memory
 
-The conversation is one JSON line per turn at `~/.local/share/nerea/conversation.jsonl` (override
-with `NEREA_DATA_DIR`). On start the newest 400 messages are restored into the prompt, so she picks
-up where you stopped talking. Nothing is summarized yet: the prompt keeps the newest turns that fit
-the 8k estimate, and the full transcript stays readable in the history window.
+Two layers, because one alone degrades:
 
-`Borrar memoria` in the panel menu clears both the in-memory conversation and the file. The history
-window shows the stored turns, the running message count and estimated tokens — estimates on
-purpose, four characters per token, because the budget is a safety net rather than an invoice.
+**Turns.** One JSON line per turn at `~/.local/share/nerea/conversation.jsonl` (override with
+`NEREA_DATA_DIR`). The prompt keeps the newest turns that fit the 8k estimate, and the full
+transcript stays readable in the history window.
+
+**Summary.** Every dozen turns the oldest unsummarized messages are folded into a running summary in
+Spanish — who the user is, projects, decisions, preferences, what is pending, and what happened
+between us. It lives in `~/.local/share/nerea/memory.json` and goes into the system prompt, so the
+beginning of the conversation survives when the raw turns no longer fit. On start only the turns the
+summary does not already cover are restored.
+
+```
+28 messages · 12 in context · 165 words of memory
+```
+
+The summary costs one small call every ~12 turns and runs in the background after the reply lands.
+If that call fails, the previous memory stays and the next turn retries: a bad summary never
+replaces a good one, and the transcript is always the source of truth. `Borrar memoria` clears the
+turns, the summary and the files.
+
+What is still missing is *recall*: asking "what did we say about X last month" needs embeddings and
+a search over the transcript, not a summary.
 
 ## Providers
 
@@ -234,7 +249,7 @@ cargo run -p nerea-cli -- config show|path|init
 cargo run -p nerea-desktop                       # the app
 NEREA_DEBUG=1 cargo run -p nerea-desktop         # log window and run events
 
-cargo test                                       # 52 tests, no network
+cargo test                                       # 64 tests, no network
 cargo clippy --all-targets -- -D warnings
 ```
 
@@ -244,9 +259,10 @@ cargo clippy --all-targets -- -D warnings
 |---|---|
 | `0.1.0` | core providers, conversation budget, failover, keyring, CLI harness |
 | `0.2.0` | one window with the attached panel, durable memory, read-only history, boot/resume lines, brand |
-| **`0.2.1`** | self-update from the checkout and packaging moved to CI |
-| `0.3.0` | live voice for replies: faithful Japanese line, TTS, `talking` frame, subtitle |
-| `0.4.0` | PC control: files, windows, commands — each action behind an explicit confirmation |
+| `0.2.1` | self-update from the checkout and packaging moved to CI |
+| **`0.3.0`** | long-term memory: a running summary so the prompt stops degrading |
+| `0.4.0` | live voice for replies: faithful Japanese line, TTS, `talking` frame, subtitle |
+| `0.5.0` | PC control: files, windows, commands — each action behind an explicit confirmation |
 
 PC control is a recorded requirement, not an implemented one. Anything that touches your machine
 will ask first, every time; that is the only way a companion with a shell is a good idea.
@@ -277,7 +293,7 @@ will ask first, every time; that is the only way a companion with a shell is a g
 - Live speech for replies is not wired: only bank lines speak.
 - Installed packages do not self-update yet; only a checkout does. That needs signed releases and a
   feed, which is the next step after the CI pipeline settles.
-- No turn summarization, so very old turns fall out of the prompt (they stay in the transcript).
+- Memory is a summary, not a search: there is no semantic recall over old turns yet.
 - One turn in flight at a time; the input is disabled while streaming.
 - The frontend has no automated test — it is verified by opening the window.
 - Dock assumes Hyprland; elsewhere she stays where the window manager placed her.

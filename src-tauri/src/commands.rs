@@ -259,6 +259,12 @@ pub async fn open_history(app: AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window("history")
         .ok_or_else(|| "history window is missing".to_owned())?;
+
+    // She is always on top, and the history needs to be readable.
+    if let Some(avatar) = app.get_webview_window("avatar") {
+        let _ = avatar.hide();
+    }
+
     window.show().map_err(|err| err.to_string())?;
     window.set_focus().map_err(|err| err.to_string())
 }
@@ -268,7 +274,13 @@ pub async fn close_history(app: AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window("history")
         .ok_or_else(|| "history window is missing".to_owned())?;
-    window.hide().map_err(|err| err.to_string())
+    let hidden = window.hide().map_err(|err| err.to_string());
+
+    if let Some(avatar) = app.get_webview_window("avatar") {
+        let _ = avatar.show();
+    }
+
+    hidden
 }
 
 #[tauri::command]
@@ -290,6 +302,8 @@ pub struct History {
     pub entries: Vec<HistoryEntry>,
     pub messages: usize,
     pub tokens: usize,
+    /// The running summary: everything the prompt no longer carries raw.
+    pub memory: String,
     pub status: crate::state::Status,
 }
 
@@ -315,6 +329,7 @@ pub async fn history(state: tauri::State<'_, AppState>) -> Result<History, Strin
         messages: entries.len(),
         tokens: entries.iter().map(|entry| entry.tokens).sum(),
         entries,
+        memory: state.memory_text().await,
         status: state.status().await,
     })
 }
@@ -362,6 +377,7 @@ struct Delta {
 
 const DELTA_EVENT: &str = "nerea://delta";
 const UPDATE_EVENT: &str = "nerea://update";
+const MEMORY_EVENT: &str = "nerea://memory";
 const SAY_EVENT: &str = "nerea://say";
 
 /// One spoken line: the audio already exists, so playing it costs nothing.
@@ -631,6 +647,19 @@ pub async fn send_message(
         && let Some(category) = mood(&provider, &reply).await
     {
         speak(&app, &bank, category);
+    }
+
+    // Folded in the background: the reply already reached the UI, and the
+    // summary is one extra small call every dozen turns.
+    if !cancelled {
+        let state = state.inner().clone();
+        let summarizer = provider.clone();
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Some(text) = state.summarize_if_due(&summarizer).await {
+                let _ = app.emit(MEMORY_EVENT, text);
+            }
+        });
     }
 
     Ok(Reply {

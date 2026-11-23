@@ -67,6 +67,25 @@ impl Conversation {
         }
     }
 
+    /// The prompt with the running summary folded into the system message.
+    ///
+    /// It goes there instead of as a second system turn because not every
+    /// gateway treats multiple system messages the same way.
+    pub fn request_with_memory(&self, memory: Option<&str>) -> ChatRequest {
+        let mut request = self.request();
+
+        if let Some(memory) = memory.map(str::trim).filter(|text| !text.is_empty())
+            && let Some(system) = request.messages.first_mut()
+        {
+            system.content = format!(
+                "{}\n\nMemoria de la conversación hasta ahora (tu recuerdo, no del usuario):\n{memory}",
+                self.system_prompt
+            );
+        }
+
+        request
+    }
+
     pub fn len(&self) -> usize {
         self.messages.len()
     }

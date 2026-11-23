@@ -4,6 +4,8 @@ const log = document.getElementById("log");
 const statusLine = document.getElementById("status");
 const totals = document.getElementById("totals");
 const eraseButton = document.getElementById("erase");
+const memoryBlock = document.getElementById("memory");
+const memoryText = document.getElementById("memory-text");
 const closeButton = document.getElementById("close");
 
 let armErase = null;
@@ -69,7 +71,7 @@ async function load() {
     const memory = data.status.restored > 0 ? ` · ${data.status.restored} recuperados al abrir` : "";
     totals.textContent =
       `${data.messages} mensajes guardados · ~${data.tokens} tokens en disco · ` +
-      `${data.status.turns} en memoria${memory}`;
+      `${data.status.turns} en contexto · ${data.status.memory_words} palabras de memoria${memory}`;
 
     log.replaceChildren();
 
@@ -80,6 +82,10 @@ async function load() {
       log.append(empty);
       return;
     }
+
+    const summary = data.memory?.trim() ?? "";
+    memoryBlock.hidden = summary.length === 0;
+    memoryText.textContent = summary;
 
     const fragment = document.createDocumentFragment();
     for (const entry of data.entries) fragment.append(renderEntry(entry));
