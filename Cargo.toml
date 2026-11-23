@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/nerea-core", "crates/nerea-cli"]
+members = ["crates/nerea-core", "crates/nerea-cli", "src-tauri"]
 
 [workspace.package]
 edition = "2024"

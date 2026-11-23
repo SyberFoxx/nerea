@@ -4,8 +4,8 @@ An AI desktop companion for Linux: a Rust core, a Tauri shell, and a static-imag
 Conceptually inspired by [CapriCore](https://github.com/CapriChooms/CapriCore), deliberately not
 its stack — no Electron, no WebGL, no JavaScript in the brain.
 
-**Status: phase 2 of 5 complete, verified against the live API.** The core holds a conversation,
-persists settings, survives a provider outage, and answers through OpenCode Go. The window comes next.
+**Status: phase 3 of 5 complete.** `cargo run -p nerea-desktop` opens the window: streamed chat
+against the live API, with an avatar slot waiting for phase 4.
 
 ---
 
@@ -15,8 +15,8 @@ persists settings, survives a provider outage, and answers through OpenCode Go. 
 |---|-------|-------|-------------|
 | 1 | Core + providers | `done` | Workspace, `AiProvider` trait, shared OpenAI-compatible transport, keyring, CLI harness |
 | 2 | Conversation | `done` | Turn history with a prompt budget, config file, provider failover |
-| 3 | Tauri shell | `next` | Chat window + avatar panel, IPC commands, streaming events |
-| 4 | Static-image avatar | `pending` | Frame manifest and a state machine (`idle` / `thinking` / `talking` / `error`) |
+| 3 | Tauri shell | `done` | Chat window + avatar panel, IPC commands, streaming events |
+| 4 | Static-image avatar | `next` | Frame manifest and a state machine (`idle` / `thinking` / `talking` / `error`) |
 | 5 | Memory | `pending` | SQLite turn store plus rolling summaries |
 
 ### Phase 1 — Core + providers
@@ -42,11 +42,12 @@ persists settings, survives a provider outage, and answers through OpenCode Go. 
 
 ### Phase 3 — Tauri shell
 
-- [ ] `src-tauri` workspace member + `ui/` frontend
-- [ ] Commands: `list_providers`, `send_message`, `cancel_stream`
-- [ ] Streaming to the frontend as Tauri events
-- [ ] First-token state (`thinking`) surfaced before the stream starts
-- [ ] `nerea-core` stays free of any Tauri dependency
+- [x] `src-tauri` workspace member + `ui/` frontend (plain HTML/CSS/JS, no bundler)
+- [x] Commands: `status`, `send_message`, `cancel_stream`, `reset_conversation`
+- [x] Streaming to the frontend as `nerea://delta` events
+- [x] State locks are never held across a stream, so cancel and status stay responsive
+- [x] `nerea-core` stays free of any Tauri dependency
+- [ ] `thinking` indicator before the first token (currently the bubble simply stays empty)
 
 ### Phase 4 — Static-image avatar
 
@@ -64,8 +65,10 @@ persists settings, survives a provider outage, and answers through OpenCode Go. 
 ## Architecture
 
 ```
-crates/nerea-core     providers · secrets · config · conversation     (no UI, no tokio)
-crates/nerea-cli      headless harness                                (tokio, clap)
+crates/nerea-core     providers · secrets · config · conversation · factory   (no UI, no tokio)
+crates/nerea-cli      headless harness                                        (tokio, clap)
+src-tauri             Tauri 2 shell: IPC commands, event streaming
+ui                    static frontend: HTML/CSS/JS, no bundler
 ```
 
 A message travels like this:
@@ -116,12 +119,14 @@ cargo run -p nerea-cli -- chat hola              # one shot
 cargo run -p nerea-cli -- chat --stream hola     # one shot, streamed
 cargo run -p nerea-cli -- chat                   # REPL (:quit, :reset)
 cargo run -p nerea-cli -- config show
+
+cargo run -p nerea-desktop                      # the window
 ```
 
 ## Verification
 
 ```bash
-cargo test                      # 35 tests, no network required
+cargo test                      # 41 tests, no network required
 cargo clippy --all-targets      # clean
 ```
 
@@ -145,6 +150,9 @@ failover is exercised both with mock providers and with two real transports wire
   tokenizer dependency while the budget is a safety net, not an accounting system.
 - **`nerea-core` does not depend on tokio.** It is generic over runtime; only the harness and tests
   pick one.
+- **One factory, two front ends.** `factory::build_chain` takes an injectable `KeySource`, so the CLI
+  and the Tauri shell share provider construction and the tests run without a keyring.
+- **No bundler.** Tauri serves `ui/` as static files; there is no node build step to keep green.
 - **Gateways get what they ask for.** OpenCode Go rejects requests without its own `User-Agent` and a
   stable `x-opencode-session`. `ChatRequest` carries the session id, and the preset decides which
   header receives it — a provider that ignores it never sees one.
@@ -154,6 +162,9 @@ failover is exercised both with mock providers and with two real transports wire
 - `println!` in the CLI panics when stdout is closed (`nerea providers | head -1`).
 - No cap on the SSE buffer if a provider never sends an event boundary.
 - API keys are not zeroized when dropped.
+- One turn in flight at a time; the input is disabled while streaming.
+- The frontend has no automated test — it is verified by opening the window.
+- Bundle packaging (`tauri build`, `.deb`/AppImage) is untested.
 
 ## Conventions
 

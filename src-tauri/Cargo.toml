@@ -1,0 +1,22 @@
+[package]
+name = "nerea-desktop"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Tauri shell for nerea"
+
+[lib]
+name = "nerea_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+nerea-core.workspace = true
+tauri = { version = "2", features = [] }
+serde.workspace = true
+serde_json.workspace = true
+futures.workspace = true
+tokio = { workspace = true, features = ["sync"] }

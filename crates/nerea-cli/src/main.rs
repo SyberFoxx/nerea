@@ -1,5 +1,4 @@
 use std::{
-    env,
     io::{self, IsTerminal, Write},
     process::ExitCode,
     sync::Arc,
@@ -8,8 +7,8 @@ use std::{
 use clap::{Parser, Subcommand};
 use futures::StreamExt;
 use nerea_core::{
-    AiProvider, Config, Conversation, FallbackProvider, OpenAiCompatProvider,
-    ProviderPreset, SecretStore, presets,
+    factory::{self, KeyState, PlatformKeys},
+    presets, AiProvider, Config, Conversation, SecretStore,
 };
 
 const SERVICE: &str = "nerea";
@@ -93,6 +92,7 @@ async fn main() -> ExitCode {
 
 async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let store = SecretStore::new(SERVICE);
+    let keys = PlatformKeys::new(SERVICE);
 
     match cli.command {
         Command::Providers => {
@@ -103,7 +103,7 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     "{marker} {:<12} {:<20} {:<14} {}",
                     preset.id,
                     preset.default_model,
-                    key_state(preset, &store),
+                    key_state(&keys, preset),
                     preset.label
                 );
                 println!("  {:<14} allowed: {}", "", preset.models.join(", "));
@@ -113,7 +113,7 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
 
         Command::Key { action } => match action {
             KeyAction::Set { provider } => {
-                let preset = require_preset(&provider)?;
+                let preset = factory::find(&provider)?;
                 let key = read_secret()?.trim().to_owned();
                 if key.is_empty() {
                     return Err("empty key: nothing stored".into());
@@ -123,7 +123,7 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 Ok(())
             }
             KeyAction::Delete { provider } => {
-                let preset = require_preset(&provider)?;
+                let preset = factory::find(&provider)?;
                 store.delete_api_key(preset.id)?;
                 println!("removed key for {}", preset.id);
                 Ok(())
@@ -163,23 +163,15 @@ async fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             let config = Config::load()?;
             let provider_id = provider.unwrap_or_else(|| config.provider.clone());
 
-            let primary = build_provider(&provider_id, model.as_deref(), &store)?;
-            let provider: Arc<dyn AiProvider> = match config.fallback.as_ref() {
-                Some(fallback) if !no_fallback => {
-                    // A fallback without a usable key is optional, not fatal.
-                    match build_provider(&fallback.provider, fallback.model.as_deref(), &store) {
-                        Ok(secondary) => Arc::new(FallbackProvider::new(primary, secondary)),
-                        Err(err) => {
-                            eprintln!(
-                                "warning: fallback `{}` unavailable, continuing without it: {err}",
-                                fallback.provider
-                            );
-                            primary
-                        }
-                    }
-                }
-                _ => primary,
-            };
+            let chain = factory::build_chain(
+                &Config { provider: provider_id, model, ..config },
+                &keys,
+                !no_fallback,
+            )?;
+            for warning in &chain.warnings {
+                eprintln!("warning: {warning}");
+            }
+            let provider = chain.provider;
 
             let mut conversation = Conversation::new(SYSTEM_PROMPT, CONTEXT_BUDGET_TOKENS);
 
@@ -266,77 +258,12 @@ async fn repl(
     }
 }
 
-fn build_provider(
-    preset_id: &str,
-    model_override: Option<&str>,
-    store: &SecretStore,
-) -> Result<Arc<dyn AiProvider>, Box<dyn std::error::Error>> {
-    let preset = require_preset(preset_id)?;
-    let model = model_override.unwrap_or(preset.default_model).to_owned();
-
-    if !preset.allows_model(&model) {
-        return Err(format!(
-            "model `{model}` is not allowed for `{}` (allowed: {})",
-            preset.id,
-            preset.models.join(", ")
-        )
-        .into());
-    }
-
-    let base_url = env::var("NEREA_BASE_URL").unwrap_or_else(|_| preset.base_url.to_owned());
-    let api_key = resolve_key(preset, store)?;
-    let mut transport = OpenAiCompatProvider::new(preset.id, base_url, api_key, model)?;
-
-    if let Some(header) = preset.session_header {
-        transport = transport.with_session_header(header)?;
-    }
-
-    Ok(Arc::new(transport))
-}
-
-fn require_preset(id: &str) -> Result<&'static ProviderPreset, Box<dyn std::error::Error>> {
-    presets::find(id).ok_or_else(|| {
-        let known: Vec<&str> = presets::all().iter().map(|preset| preset.id).collect();
-        format!("unknown provider `{id}` (known: {})", known.join(", ")).into()
-    })
-}
-
-/// Environment wins over the keyring so development does not touch the OS store.
-fn resolve_key(
-    preset: &ProviderPreset,
-    store: &SecretStore,
-) -> Result<String, Box<dyn std::error::Error>> {
-    if let Ok(value) = env::var(preset.env_var) {
-        let trimmed = value.trim();
-        if !trimmed.is_empty() {
-            return Ok(trimmed.to_owned());
-        }
-    }
-
-    match store.api_key(preset.id)? {
-        Some(key) => Ok(key),
-        None => Err(format!(
-            "no API key for `{}`: run `nerea key set {}` or export {}",
-            preset.id,
-            preset.id,
-            preset.env_var
-        )
-        .into()),
-    }
-}
-
-fn key_state(preset: &ProviderPreset, store: &SecretStore) -> &'static str {
-    let from_env = env::var(preset.env_var)
-        .map(|value| !value.trim().is_empty())
-        .unwrap_or(false);
-    if from_env {
-        return "env";
-    }
-
-    match store.api_key(preset.id) {
-        Ok(Some(_)) => "keyring",
-        Ok(None) => "missing",
-        Err(_) => "keyring error",
+fn key_state(keys: &PlatformKeys, preset: &nerea_core::ProviderPreset) -> &'static str {
+    match keys.state(preset) {
+        KeyState::Env => "env",
+        KeyState::Keyring => "keyring",
+        KeyState::Missing => "missing",
+        KeyState::Unavailable => "keyring error",
     }
 }
 

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>nerea</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <h1 class="wordmark">nerea</h1>
+      <span id="status" class="status">connecting…</span>
+      <button id="reset" class="link" type="button" title="Forget this conversation">reset</button>
+    </header>
+
+    <main class="stage">
+      <section id="log" class="log" aria-live="polite">
+        <p class="empty">Nothing yet. Write something below.</p>
+      </section>
+
+      <aside class="avatar" aria-label="Nerea avatar">
+        <div class="frame">
+          <span class="frame-label">avatar<br />pending</span>
+        </div>
+        <p class="hint">static frames arrive in phase 4</p>
+      </aside>
+    </main>
+
+    <footer class="composer">
+      <form id="composer">
+        <label class="sr-only" for="input">Message</label>
+        <textarea id="input" rows="2" placeholder="Write to Nerea…" autocomplete="off"></textarea>
+        <div class="actions">
+          <button id="send" type="submit">Send</button>
+          <button id="stop" class="ghost" type="button" hidden>Stop</button>
+        </div>
+      </form>
+      <p class="keys">Enter sends · Shift+Enter breaks the line</p>
+    </footer>
+
+    <script type="module" src="main.js"></script>
+  </body>
+</html>
