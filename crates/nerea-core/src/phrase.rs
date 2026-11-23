@@ -21,21 +21,40 @@ pub struct Phrase {
 }
 
 #[derive(Debug, Deserialize)]
+struct Reference {
+    #[serde(default)]
+    prompt_ja: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct Bank {
     #[serde(default)]
     entries: Vec<Phrase>,
+    /// Transcript of the reference clip, needed by the voice engine.
+    reference: Option<Reference>,
 }
 
 #[derive(Default)]
 pub struct PhraseBank {
     entries: Vec<Phrase>,
+    reference: Option<String>,
     last: Mutex<Option<usize>>,
 }
 
 impl PhraseBank {
     pub fn load() -> Result<Self, String> {
         let bank: Bank = serde_json::from_str(BANK).map_err(|err| err.to_string())?;
-        Ok(Self { entries: bank.entries, last: Mutex::new(None) })
+        let reference = bank
+            .reference
+            .map(|reference| reference.prompt_ja)
+            .filter(|prompt| !prompt.trim().is_empty());
+
+        Ok(Self { entries: bank.entries, reference, last: Mutex::new(None) })
+    }
+
+    /// Transcript of the clip the voice was cloned from.
+    pub fn reference_prompt(&self) -> Option<&str> {
+        self.reference.as_deref()
     }
 
     pub fn len(&self) -> usize {

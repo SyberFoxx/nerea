@@ -28,6 +28,7 @@ const CATEGORY_FRAME = {
   idle: "idle",
   back: "back",
   thinking: "thinking",
+  talking: "talking",
   micro: "agree",
   agree: "agree",
   surprise: "surprise",

@@ -1,7 +1,4 @@
-use std::{
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::{path::PathBuf, process::Command};
 
 use nerea_core::PhraseBank;
 use serde::Serialize;
@@ -411,45 +408,6 @@ fn bank_dir(app: &AppHandle) -> PathBuf {
     PathBuf::from("assets/voice/bank")
 }
 
-/// Reads duration straight from the WAV headers instead of spawning ffprobe.
-fn wav_duration_ms(path: &Path) -> Option<u64> {
-    let bytes = std::fs::read(path).ok()?;
-    if bytes.len() < 44 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
-        return None;
-    }
-
-    let mut offset = 12;
-    let (mut channels, mut rate, mut bits) = (1u64, 32_000u64, 16u64);
-
-    while offset + 8 <= bytes.len() {
-        let id = &bytes[offset..offset + 4];
-        let size = u32::from_le_bytes(bytes[offset + 4..offset + 8].try_into().ok()?) as usize;
-        let body = offset + 8;
-
-        if id == b"fmt " && body + 16 <= bytes.len() {
-            channels = u16::from_le_bytes([bytes[body + 2], bytes[body + 3]]) as u64;
-            rate = u32::from_le_bytes([
-                bytes[body + 4],
-                bytes[body + 5],
-                bytes[body + 6],
-                bytes[body + 7],
-            ]) as u64;
-            bits = u16::from_le_bytes([bytes[body + 14], bytes[body + 15]]) as u64;
-        } else if id == b"data" {
-            let bytes_per_second = rate * channels * bits.max(8) / 8;
-            if bytes_per_second == 0 {
-                return None;
-            }
-            let available = size.min(bytes.len().saturating_sub(body)) as u64;
-            return Some(available * 1000 / bytes_per_second);
-        }
-
-        offset = body + size + (size & 1);
-    }
-
-    None
-}
-
 pub(crate) fn speak(app: &AppHandle, bank: &PhraseBank, category: &str) -> Option<Said> {
     let phrase = bank.pick(category)?;
     let path = bank_dir(app).join(format!("{}.wav", phrase.id));
@@ -465,7 +423,7 @@ pub(crate) fn speak(app: &AppHandle, bank: &PhraseBank, category: &str) -> Optio
         category: phrase.category,
         ja: phrase.ja,
         es: phrase.es,
-        duration_ms: wav_duration_ms(&path).unwrap_or(1_800),
+        duration_ms: crate::voice::wav_duration_ms(&path).unwrap_or(1_800),
         played,
     };
 
@@ -506,6 +464,30 @@ pub async fn update_apply(app: AppHandle) -> Result<(), String> {
 
     let _ = app.emit(UPDATE_EVENT, "restarting");
     app.restart()
+}
+
+/// The reply, said in Japanese: one small call, faithful to the Spanish text.
+pub(crate) async fn japanese_line(
+    provider: &std::sync::Arc<dyn nerea_core::AiProvider>,
+    reply: &str,
+) -> Option<String> {
+    const PROMPT: &str = "Traducí al japonés hablado, natural y breve, esta respuesta de Nerea. \
+Máximo 60 caracteres. Reglas: llamá al usuario 私の竜 o 愛しの竜, nunca ドラゴン; conservá su tic \
+あらあら si aparece; no agregues nada que no esté en la respuesta. Devolvé solo la línea: sin comillas, \
+sin romaji, sin explicación.";
+
+    let request = nerea_core::ChatRequest {
+        messages: vec![
+            nerea_core::ChatMessage::system(PROMPT),
+            nerea_core::ChatMessage::user(reply.chars().take(1_000).collect::<String>()),
+        ],
+        session_id: "voice".to_owned(),
+    };
+
+    let answer = provider.chat_completion(&request).await.ok()?;
+    let line = answer.content.trim().trim_matches('"').trim().to_owned();
+
+    (!line.is_empty()).then_some(line)
 }
 
 /// One short extra call: the tone of the reply decides which reaction plays.
@@ -649,7 +631,23 @@ pub async fn send_message(
     let turns = state.finish_turn(&reply).await;
     emit_state(&app, "idle");
 
-    if !cancelled && reply.chars().count() > 12
+    // Her actual voice first; the bank is the fallback when the engine is off.
+    let mut spoke_live = false;
+
+    if !cancelled && !reply.trim().is_empty()
+        && let Some(reference) = bank.reference_prompt().map(str::to_owned)
+        && let Some(japanese) = japanese_line(&provider, &reply).await
+    {
+        match crate::voice::speak(&japanese, &reply, &reference).await {
+            Ok(line) => {
+                let _ = app.emit(SAY_EVENT, &line);
+                spoke_live = true;
+            }
+            Err(_) => spoke_live = false,
+        }
+    }
+
+    if !spoke_live && !cancelled && reply.chars().count() > 12
         && let Some(category) = mood(&provider, &reply).await
     {
         speak(&app, &bank, category);

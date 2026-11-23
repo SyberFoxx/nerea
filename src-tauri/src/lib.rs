@@ -1,6 +1,7 @@
 mod commands;
 mod state;
 mod update;
+mod voice;
 
 use tauri::{Emitter, Manager};
 
@@ -12,6 +13,41 @@ pub fn run() {
 
             // Development aid: open the panel without a pointer so its layout can
             // be checked from a script. Never set in normal use.
+            // Development aid: say one sentence through the whole voice path.
+            if let Ok(text) = std::env::var("NEREA_SAY_TEST") {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    std::thread::sleep(std::time::Duration::from_millis(1200));
+                    let state = handle.state::<state::AppState>().inner().clone();
+                    let Ok(provider) = state.ensure_provider().await else {
+                        eprintln!("nerea voice: no provider");
+                        return;
+                    };
+                    let Some(japanese) = commands::japanese_line(&provider, &text).await else {
+                        eprintln!("nerea voice: no japanese line");
+                        return;
+                    };
+                    eprintln!("nerea voice: ja={japanese}");
+
+                    let Some(reference) = handle
+                        .state::<nerea_core::PhraseBank>()
+                        .reference_prompt()
+                        .map(str::to_owned)
+                    else {
+                        eprintln!("nerea voice: no reference prompt");
+                        return;
+                    };
+
+                    match voice::speak(&japanese, &text, &reference).await {
+                        Ok(line) => {
+                            eprintln!("nerea voice: {} ms of audio", line.duration_ms);
+                            let _ = handle.emit("nerea://say", &line);
+                        }
+                        Err(err) => eprintln!("nerea voice: failed: {err}"),
+                    }
+                });
+            }
+
             // Development aid: print what recall would send for a query.
             if let Ok(query) = std::env::var("NEREA_RECALL_QUERY") {
                 let handle = app.handle().clone();

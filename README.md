@@ -225,19 +225,37 @@ The engine is machine-local and gitignored: GPT-SoVITS in a Python 3.11 venv und
 (~12 GB with weights). The reference clip is a real person's voice and never leaves the machine.
 
 ```bash
-tools/voice/.venv/bin/python tools/voice/serve_tts.py   # 127.0.0.1:9880
-tools/voice/.venv/bin/python voice/render_bank.py        # render the phrase bank (resumable)
+tools/voice/.venv/bin/python voice/serve_tts.py   # 127.0.0.1:9880, ~3.6 GB RAM + 2.8 GB VRAM
+tools/voice/.venv/bin/python voice/render_bank.py  # render the phrase bank (resumable)
 ```
 
 `s serve_tts.py` exists because torchaudio 2.9+ delegates audio I/O to torchcodec, whose wheels do
 not load against the CUDA 12.8 build the RTX 50 series needs; the launcher routes `load`/`save`
 through soundfile instead.
 
-**Measured latency (RTX 5060, 8 GB):** roughly 3.5× realtime synthesis plus a fixed ~15 s per
-request, which points at per-request work (model reload or reference-feature recompute) rather than
-the autoregressive loop. That is why the app speaks from a **pre-rendered phrase bank** of 84 lines:
-instant, free at runtime, and enough for every reaction. Novel sentences keep using the live engine
-once the fixed cost is gone.
+### Measured latency (RTX 5060, 8 GB)
+
+| | before | after |
+|---|---|---|
+| first sentence after start | 16–20 s | 1.8 s |
+| every new sentence | 16–18 s | 0.5–1.8 s |
+| the same sentence again | 0.3 s | — |
+
+The fixed cost was **CUDA graph capture** in this build's "Accel" AR engine: one graph per input
+shape, and every sentence has a new shape, so every sentence paid for a capture. `voice/serve_tts.py`
+sets `CUDAGraph=0`; the graphs only changed the bookkeeping, not the audio. That single line took
+the voice from unusable to live.
+
+### What she says
+
+Every reply is spoken. The Spanish answer is rendered into one faithful Japanese line (one small
+call, with her terms enforced: `私の竜`, `愛しの竜`, the `あらあら` tic), synthesized locally, and
+played while the panel shows the Spanish subtitle and she holds the `talking` frame. The eleven
+second worst case is a long sentence; typical lines are one to three.
+
+If the engine is not running, the reply still lands and the app falls back to the **pre-rendered
+bank** of 84 lines — instant, free, and enough for every reaction. Voice is an upgrade, never a
+dependency.
 
 | path | size | needed for |
 |---|---|---|
@@ -260,7 +278,7 @@ cargo run -p nerea-cli -- config show|path|init
 cargo run -p nerea-desktop                       # the app
 NEREA_DEBUG=1 cargo run -p nerea-desktop         # log window and run events
 
-cargo test                                       # 72 tests, no network
+cargo test                                       # 74 tests, no network
 cargo clippy --all-targets -- -D warnings
 ```
 
@@ -302,7 +320,8 @@ will ask first, every time; that is the only way a companion with a shell is a g
 
 ## Known gaps
 
-- Live speech for replies is not wired: only bank lines speak.
+- The voice engine is started by hand and nothing supervises it: if it dies, replies stay silent
+  until it is restarted.
 - Installed packages do not self-update yet; only a checkout does. That needs signed releases and a
   feed, which is the next step after the CI pipeline settles.
 - Recall is lexical: a question that shares no words with the old turns finds nothing. Embeddings

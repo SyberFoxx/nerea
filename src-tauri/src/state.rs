@@ -367,8 +367,7 @@ fn render_recall(index: &RecallIndex, query: &str) -> (Option<String>, usize, u6
         }
         used.push(start);
 
-        for position in start..=end {
-            let entry = &index.entries[position];
+        for entry in &index.entries[start..=end] {
             if entry.role == Role::System {
                 continue;
             }
