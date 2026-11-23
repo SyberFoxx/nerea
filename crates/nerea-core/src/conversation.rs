@@ -38,6 +38,11 @@ impl Conversation {
         }
     }
 
+    /// Restores a stored turn without going through the provider.
+    pub fn push(&mut self, message: ChatMessage) {
+        self.messages.push(message);
+    }
+
     pub fn push_user(&mut self, content: impl Into<String>) {
         self.messages.push(ChatMessage::user(content));
     }
@@ -68,6 +73,11 @@ impl Conversation {
 
     pub fn is_empty(&self) -> bool {
         self.messages.is_empty()
+    }
+
+    /// Estimated tokens held by the stored turns, system prompt excluded.
+    pub fn estimated_tokens(&self) -> usize {
+        self.messages.iter().map(|message| estimate_tokens(&message.content)).sum()
     }
 
     /// System prompt plus the newest turns that fit the budget.

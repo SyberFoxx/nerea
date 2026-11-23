@@ -1,11 +1,13 @@
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
 };
 
 use nerea_core::{
     factory::{self, PlatformKeys},
-    presets, AiProvider, ChatRequest, Config, Conversation,
+    presets,
+    transcript::Transcript,
+    AiProvider, ChatRequest, Config, Conversation, Entry, Role,
 };
 use serde::Serialize;
 use tokio::sync::Mutex;
@@ -14,10 +16,17 @@ pub const SERVICE: &str = "nerea";
 
 const SYSTEM_PROMPT: &str = "You are Nerea, a concise AI desktop companion living on the user's \
 Linux machine. Answer in the user's language. Keep replies short unless the user asks for depth. \
-Never invent facts about the user; ask instead.";
+Never invent facts about the user; ask instead. Earlier turns may come from a previous session: \
+treat them as your own memory of the conversation.";
 
 /// Same budget as the CLI: recent context, not a full window.
 const CONTEXT_BUDGET_TOKENS: usize = 8_000;
+
+/// How much of the stored conversation is restored into the prompt.
+const RESTORED_MESSAGES: usize = 400;
+
+/// Warnings are informative, not a log: more than a handful means noise.
+const MAX_WARNINGS: usize = 6;
 
 struct Session {
     conversation: Conversation,
@@ -32,6 +41,8 @@ struct Session {
 pub struct AppState {
     session: Mutex<Session>,
     cancel: Arc<AtomicBool>,
+    transcript: Transcript,
+    restored: AtomicUsize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -39,6 +50,10 @@ pub struct Status {
     pub provider: String,
     pub model: Option<String>,
     pub turns: usize,
+    /// Estimated tokens held in memory, system prompt excluded.
+    pub tokens: usize,
+    /// Turns loaded from disk when the app started.
+    pub restored: usize,
     pub session_id: String,
     pub warnings: Vec<String>,
 }
@@ -51,13 +66,23 @@ impl Default for AppState {
 
 impl AppState {
     pub fn new() -> Self {
+        let transcript = Transcript::open();
+        let restored = transcript.recent(RESTORED_MESSAGES);
+
+        let mut conversation = Conversation::new(SYSTEM_PROMPT, CONTEXT_BUDGET_TOKENS);
+        for message in restored.iter().cloned() {
+            conversation.push(message);
+        }
+
         Self {
             session: Mutex::new(Session {
-                conversation: Conversation::new(SYSTEM_PROMPT, CONTEXT_BUDGET_TOKENS),
+                conversation,
                 provider: None,
                 warnings: Vec::new(),
             }),
             cancel: Arc::new(AtomicBool::new(false)),
+            transcript,
+            restored: AtomicUsize::new(restored.len()),
         }
     }
 
@@ -95,6 +120,8 @@ impl AppState {
             provider,
             model,
             turns: session.conversation.len(),
+            tokens: session.conversation.estimated_tokens(),
+            restored: self.restored.load(Ordering::Relaxed),
             session_id: session.conversation.session_id().to_owned(),
             warnings: session.warnings.clone(),
         }
@@ -104,6 +131,11 @@ impl AppState {
         self.cancel.store(false, Ordering::SeqCst);
         let mut session = self.session.lock().await;
         session.conversation.push_user(text);
+
+        if let Err(err) = self.transcript.append(Role::User, text) {
+            note(&mut session.warnings, format!("memory write failed: {err}"));
+        }
+
         session.conversation.request()
     }
 
@@ -113,6 +145,9 @@ impl AppState {
         let mut session = self.session.lock().await;
         if !reply.is_empty() {
             session.conversation.push_assistant(reply);
+            if let Err(err) = self.transcript.append(Role::Assistant, reply) {
+                note(&mut session.warnings, format!("memory write failed: {err}"));
+            }
         }
         session.conversation.len()
     }
@@ -120,6 +155,20 @@ impl AppState {
     pub async fn reset(&self) {
         let mut session = self.session.lock().await;
         session.conversation = Conversation::new(SYSTEM_PROMPT, CONTEXT_BUDGET_TOKENS);
+        if let Err(err) = self.transcript.clear() {
+            note(&mut session.warnings, format!("memory clear failed: {err}"));
+        }
+        self.restored.store(0, Ordering::Relaxed);
+    }
+
+    /// Everything ever stored, for the read-only history window.
+    pub fn transcript_entries(&self) -> Vec<Entry> {
+        self.transcript.entries()
+    }
+
+    /// True once any earlier session left something behind.
+    pub fn has_memory(&self) -> bool {
+        self.restored.load(Ordering::Relaxed) > 0
     }
 
     pub fn cancel(&self) {
@@ -131,9 +180,38 @@ impl AppState {
     }
 }
 
+/// Keeps warnings short and free of duplicates.
+fn note(warnings: &mut Vec<String>, warning: String) {
+    if warnings.iter().any(|existing| existing == &warning) {
+        return;
+    }
+    if warnings.len() >= MAX_WARNINGS {
+        return;
+    }
+    warnings.push(warning);
+}
+
 fn configured() -> (String, Option<String>) {
     match Config::load() {
         Ok(config) => (config.provider, config.model),
         Err(_) => (Config::default().provider, None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn warnings_are_deduplicated_and_bounded() {
+        let mut warnings = Vec::new();
+        note(&mut warnings, "one".to_owned());
+        note(&mut warnings, "one".to_owned());
+        assert_eq!(warnings.len(), 1);
+
+        for index in 0..20 {
+            note(&mut warnings, format!("w{index}"));
+        }
+        assert_eq!(warnings.len(), MAX_WARNINGS);
     }
 }

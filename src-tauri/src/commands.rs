@@ -6,7 +6,7 @@ use std::{
 use nerea_core::PhraseBank;
 use serde::Serialize;
 use serde_json::Value;
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition};
+use tauri::{AppHandle, Emitter, LogicalSize, Manager};
 
 use crate::state::AppState;
 
@@ -85,6 +85,79 @@ fn focused_client() -> Option<DockTarget> {
     })
 }
 
+/// Our own avatar window as the compositor sees it.
+///
+/// GTK does not report the frame it wraps around the webview, and Wayland has
+/// no client-side positioning, so the compositor is the only source of truth
+/// for both geometry and placement.
+#[derive(Debug, Clone)]
+struct OwnWindow {
+    address: String,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+}
+
+fn own_window() -> Option<OwnWindow> {
+    let clients = hypr_json(&["clients", "-j"])?;
+    let pid = std::process::id() as i64;
+
+    clients.as_array()?.iter().find_map(|client| {
+        if client.get("pid").and_then(Value::as_i64)? != pid {
+            return None;
+        }
+        if client.get("title").and_then(Value::as_str)? != "nerea-avatar" {
+            return None;
+        }
+        let at = client.get("at")?;
+        let size = client.get("size")?;
+
+        Some(OwnWindow {
+            address: client.get("address")?.as_str()?.to_owned(),
+            x: number(at, 0)?,
+            y: number(at, 1)?,
+            width: number(size, 0)?,
+            height: number(size, 1)?,
+        })
+    })
+}
+
+/// Wayland forbids a client from placing its own window; the compositor can.
+fn place_window(frame: &OwnWindow, x: i32, y: i32) {
+    let expression = format!(
+        "hl.dsp.window.move({{ x = {x}, y = {y}, window = \"address:{}\" }})",
+        frame.address
+    );
+    let _ = Command::new("hyprctl").arg("dispatch").arg(expression).output();
+}
+
+/// Pins the window to an exact size.
+///
+/// GTK ignores a resize on the non-resizable window the compositor needs in
+/// order to keep her floating, so the size goes in as an identical minimum and
+/// maximum instead.
+fn pin_size(window: &tauri::WebviewWindow, size: (f64, f64)) -> Result<(), String> {
+    let size = tauri::Size::Logical(LogicalSize::new(size.0, size.1));
+    window.set_min_size(Some(size)).map_err(|err| err.to_string())?;
+    window.set_max_size(Some(size)).map_err(|err| err.to_string())
+}
+
+/// Top-left corner that keeps her bottom-right corner where it already is.
+fn anchored(frame: &OwnWindow, size: (f64, f64), scale: f64) -> (i32, i32, i32, i32) {
+    let width = (size.0 * scale).round() as i32;
+    let height = (size.1 * scale).round() as i32;
+    let mut x = frame.x + frame.width - width;
+    let mut y = frame.y + frame.height - height;
+
+    if let Some((mon_x, mon_y, mon_w, mon_h)) = monitor_bounds() {
+        x = x.clamp(mon_x, mon_x + mon_w - width);
+        y = y.clamp(mon_y, mon_y + mon_h - height);
+    }
+
+    (x, y, width, height)
+}
+
 fn monitor_bounds() -> Option<(i32, i32, i32, i32)> {
     let monitors = hypr_json(&["monitors", "-j"])?;
     let first = monitors.as_array()?.first()?;
@@ -105,74 +178,173 @@ fn monitor_bounds() -> Option<(i32, i32, i32, i32)> {
 /// Returns `None` on compositors without `hyprctl`; the overlay simply stays put.
 #[tauri::command]
 pub async fn dock(app: AppHandle) -> Result<Option<DockTarget>, String> {
-    let target = focused_client();
     let avatar = app
         .get_webview_window("avatar")
         .ok_or_else(|| "avatar window is missing".to_owned())?;
+    let scale = avatar.scale_factor().unwrap_or(1.0);
 
-    let Some(target) = target else {
+    pin_size(&avatar, PORTRAIT)?;
+
+    let Some(frame) = own_window() else {
         return Ok(None);
     };
 
-    let size = avatar.outer_size().map_err(|err| err.to_string())?;
-    let mut x = target.x + target.width - size.width as i32 + SEAT_OVERLAP;
-    let mut y = target.y + target.height - size.height as i32 + EDGE_INSET;
+    let width = (PORTRAIT.0 * scale).round() as i32;
+    let height = (PORTRAIT.1 * scale).round() as i32;
+    let target = focused_client();
 
-    if let Some((mon_x, mon_y, mon_w, mon_h)) = monitor_bounds() {
-        x = x.clamp(mon_x, mon_x + mon_w - size.width as i32);
-        y = y.clamp(mon_y, mon_y + mon_h - size.height as i32);
-    }
-
-    avatar
-        .set_position(PhysicalPosition::new(x, y))
-        .map_err(|err| err.to_string())?;
-
-    Ok(Some(target))
-}
-
-/// Opens the small composer to the left of the avatar, anchored to her feet.
-#[tauri::command]
-pub async fn open_composer(app: AppHandle) -> Result<(), String> {
-    let avatar = app
-        .get_webview_window("avatar")
-        .ok_or_else(|| "avatar window is missing".to_owned())?;
-    let composer = app
-        .get_webview_window("composer")
-        .ok_or_else(|| "composer window is missing".to_owned())?;
-
-    let avatar_pos = avatar.outer_position().map_err(|err| err.to_string())?;
-    let avatar_size = avatar.outer_size().map_err(|err| err.to_string())?;
-    let composer_size = composer.outer_size().map_err(|err| err.to_string())?;
-
-    // GTK reports a real size once the hidden window exists, but fall back to the
-    // configured size (plus its known padding) if the first measurement is empty.
-    let width = if composer_size.width < 100 { 408 } else { composer_size.width as i32 };
-    let height = if composer_size.height < 100 { 348 } else { composer_size.height as i32 };
-
-    // Overlap her body slightly so the bubble reads as coming from her.
-    let mut x = avatar_pos.x - width + 96;
-    let mut y = avatar_pos.y + avatar_size.height as i32 - height;
+    let (mut x, mut y) = match target.as_ref() {
+        Some(target) => (
+            target.x + target.width - width + SEAT_OVERLAP,
+            target.y + target.height - height + EDGE_INSET,
+        ),
+        None => (frame.x, frame.y),
+    };
 
     if let Some((mon_x, mon_y, mon_w, mon_h)) = monitor_bounds() {
         x = x.clamp(mon_x, mon_x + mon_w - width);
         y = y.clamp(mon_y, mon_y + mon_h - height);
     }
 
-    composer
-        .set_position(PhysicalPosition::new(x, y))
-        .map_err(|err| err.to_string())?;
-    composer.show().map_err(|err| err.to_string())?;
-    composer.set_focus().map_err(|err| err.to_string())?;
+    place_window(&frame, x, y);
+
+    Ok(target)
+}
+
+/// Her portrait alone, and the same window with the chat panel open.
+const PORTRAIT: (f64, f64) = (176.0, 256.0);
+const PANEL: (f64, f64) = (560.0, 560.0);
+
+/// Grows or shrinks the avatar window, keeping her feet where they are.
+///
+/// Anchoring bottom-right means the panel opens up and to the left, so her
+/// position on screen does not change when the chat appears.
+fn resize_panel(app: &AppHandle, open: bool) -> Result<(), String> {
+    let window = app
+        .get_webview_window("avatar")
+        .ok_or_else(|| "avatar window is missing".to_owned())?;
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let target = if open { PANEL } else { PORTRAIT };
+
+    if let Some(frame) = own_window() {
+        let (x, y, _, _) = anchored(&frame, target, scale);
+        pin_size(&window, target)?;
+        place_window(&frame, x, y);
+    } else {
+        pin_size(&window, target)?;
+    }
+
+    if open {
+        let _ = window.set_focus();
+    }
 
     Ok(())
 }
 
+/// Opens the chat panel: the window grows, she does not move.
 #[tauri::command]
-pub async fn close_composer(app: AppHandle) -> Result<(), String> {
-    let composer = app
-        .get_webview_window("composer")
-        .ok_or_else(|| "composer window is missing".to_owned())?;
-    composer.hide().map_err(|err| err.to_string())
+pub async fn open_panel(app: AppHandle) -> Result<(), String> {
+    resize_panel(&app, true)
+}
+
+/// Back to her portrait, so the window stops covering the desktop.
+#[tauri::command]
+pub async fn close_panel(app: AppHandle) -> Result<(), String> {
+    resize_panel(&app, false)
+}
+
+/// The read-only history window is never opened automatically.
+#[tauri::command]
+pub async fn open_history(app: AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("history")
+        .ok_or_else(|| "history window is missing".to_owned())?;
+    window.show().map_err(|err| err.to_string())?;
+    window.set_focus().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub async fn close_history(app: AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("history")
+        .ok_or_else(|| "history window is missing".to_owned())?;
+    window.hide().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn quit(app: AppHandle) {
+    app.exit(0);
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HistoryEntry {
+    pub role: nerea_core::Role,
+    pub content: String,
+    /// Unix milliseconds.
+    pub at: u64,
+    pub tokens: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct History {
+    pub entries: Vec<HistoryEntry>,
+    pub messages: usize,
+    pub tokens: usize,
+    pub status: crate::state::Status,
+}
+
+fn stored_entries(state: &AppState) -> Vec<HistoryEntry> {
+    state
+        .transcript_entries()
+        .into_iter()
+        .map(|entry| HistoryEntry {
+            tokens: nerea_core::estimate_tokens(&entry.content),
+            role: entry.role,
+            content: entry.content,
+            at: entry.at,
+        })
+        .collect()
+}
+
+/// Everything ever stored plus the running totals the history window shows.
+#[tauri::command]
+pub async fn history(state: tauri::State<'_, AppState>) -> Result<History, String> {
+    let entries = stored_entries(&state);
+
+    Ok(History {
+        messages: entries.len(),
+        tokens: entries.iter().map(|entry| entry.tokens).sum(),
+        entries,
+        status: state.status().await,
+    })
+}
+
+/// The newest `limit` turns, for the short log inside the panel.
+#[tauri::command]
+pub async fn transcript(
+    state: tauri::State<'_, AppState>,
+    limit: Option<usize>,
+) -> Result<Vec<HistoryEntry>, String> {
+    let mut entries = stored_entries(&state);
+
+    if let Some(limit) = limit {
+        let keep_from = entries.len().saturating_sub(limit);
+        entries.drain(..keep_from);
+    }
+
+    Ok(entries)
+}
+
+/// First line after launch: a resume line when there is history, a boot line
+/// when this is the first time.
+#[tauri::command]
+pub fn greet(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    bank: tauri::State<'_, PhraseBank>,
+) -> Option<Said> {
+    let category = if state.has_memory() { "resume" } else { "boot" };
+    speak(&app, &bank, category)
 }
 
 #[derive(Debug, Serialize)]

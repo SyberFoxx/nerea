@@ -1,3 +1,12 @@
+:root {
+  --panel: #101a1f;
+  --panel-soft: #16232a;
+  --line: #223037;
+  --text: #e3ebf0;
+  --muted: #82979f;
+  --accent: #2ec4b6;
+}
+
 html,
 body {
   margin: 0;
@@ -5,17 +14,28 @@ body {
   background: transparent;
   overflow: hidden;
   user-select: none;
-  cursor: grab;
+  font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+  color: var(--text);
 }
 
 .stage {
-  display: grid;
-  place-items: end center;
+  position: relative;
+  width: 100%;
   height: 100%;
-  background: transparent;
 }
 
-.stage:active {
+/* Her portrait: exactly 176x256 at the bottom-right corner, so the closed
+   window covers nothing but her. Dragging starts here. */
+.grip {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 176px;
+  height: 256px;
+  cursor: grab;
+}
+
+.grip:active {
   cursor: grabbing;
 }
 
@@ -29,43 +49,245 @@ body {
   -webkit-user-drag: none;
 }
 
-/* Keep the frame anchored to the seat line while it swaps. */
-.sprite[data-state="error"] {
-  opacity: 0.92;
-}
-
-/* If the frames cannot be loaded, show a shape instead of an empty window. */
 .stage[data-fallback="true"] .sprite {
   display: none;
 }
 
-.stage[data-fallback="true"]::after {
+.stage[data-fallback="true"] .grip::after {
   content: "";
-  width: 58%;
+  position: absolute;
+  left: 21%;
+  right: 21%;
+  bottom: 0;
   height: 52%;
   border-radius: 46% 46% 6px 6px;
   background: #1f2b33;
-  border-bottom: 3px solid #2ec4b6;
-  align-self: end;
-  justify-self: center;
+  border-bottom: 3px solid var(--accent);
 }
 
-/* Score of the line she just said, so a spontaneous remark is readable. */
+/* The chat lives in the area the window grows into: everything except her. */
+.panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: calc(100% - 176px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 14px 12px;
+  box-sizing: border-box;
+  background: #0e151a;
+  border: 1px solid #26363f;
+  border-right: 0;
+  border-radius: 14px 0 0 14px;
+}
+
+/* The little tail that points at her, so the card reads as her speech. */
+.panel::after {
+  content: "";
+  position: absolute;
+  right: -8px;
+  bottom: 34px;
+  width: 0;
+  height: 0;
+  border-top: 9px solid transparent;
+  border-bottom: 9px solid transparent;
+  border-left: 9px solid #0e151a;
+}
+
+.panel[hidden] {
+  display: none;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.name {
+  flex: 1;
+  font-size: 12.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.icon,
+.send {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-soft);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.icon:hover,
+.send:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.send {
+  border-color: #1d5f5a;
+  background: #12312f;
+  color: var(--accent);
+}
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  flex: 0 0 auto;
+}
+
+.menu[hidden] {
+  display: none;
+}
+
+.menu button {
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.menu button:hover {
+  background: #1d2f37;
+  color: var(--accent);
+}
+
+.log {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+  padding-right: 2px;
+}
+
+.empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.bubble {
+  max-width: 92%;
+  margin: 0;
+  padding: 9px 11px;
+  border-radius: 11px;
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.bubble.user {
+  align-self: flex-end;
+  background: #1a3b45;
+  border: 1px solid #245563;
+  border-bottom-right-radius: 4px;
+}
+
+.bubble.nerea {
+  align-self: flex-start;
+  background: #18262e;
+  border: 1px solid #26363f;
+  border-bottom-left-radius: 4px;
+}
+
+.bubble.murmur {
+  align-self: flex-start;
+  padding: 0 2px;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.bubble.failed {
+  border-color: #6b2c2c;
+  background: #2a1717;
+  color: #f3c7c7;
+}
+
+.composer {
+  display: flex;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.composer input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #18262e;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+}
+
+.composer input:focus {
+  border-color: var(--accent);
+}
+
+.composer input:disabled {
+  opacity: 0.6;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+/* The line she just said, readable at her feet. */
 .subtitle {
   position: absolute;
-  left: 4px;
   right: 4px;
   bottom: 4px;
+  width: 170px;
   margin: 0;
   padding: 4px 6px;
   border-radius: 6px;
-  background: rgba(13, 19, 23, 0.88);
-  border-left: 2px solid #2ec4b6;
-  color: #e3ebf0;
-  font-family: system-ui, "Segoe UI", Roboto, sans-serif;
-  font-size: 10.5px;
-  line-height: 1.35;
-  max-height: 46px;
+  background: rgba(13, 19, 23, 0.9);
+  border-left: 2px solid var(--accent);
+  color: var(--text);
+  font-size: 11.5px;
+  line-height: 1.4;
+  max-height: 58px;
   overflow: hidden;
   pointer-events: none;
+}
+
+.subtitle[hidden] {
+  display: none;
 }

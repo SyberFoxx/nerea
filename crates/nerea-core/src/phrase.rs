@@ -123,7 +123,7 @@ mod tests {
         let bank = PhraseBank::load().expect("embedded bank");
         let categories = bank.categories();
         for expected in [
-            "boot", "timeofday", "idle", "back", "thinking", "micro", "agree", "surprise", "laugh",
+            "boot", "resume", "timeofday", "idle", "back", "thinking", "micro", "agree", "surprise", "laugh",
             "tease", "flirt", "jealous", "affection", "complain", "goodbye",
         ] {
             assert!(categories.contains(&expected), "missing category {expected}");

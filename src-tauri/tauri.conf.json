@@ -10,15 +10,6 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "nerea",
-        "width": 940,
-        "height": 660,
-        "minWidth": 680,
-        "minHeight": 480,
-        "center": true,
-        "resizable": true
-      },
-      {
         "label": "avatar",
         "url": "avatar.html",
         "width": 176,
@@ -34,18 +25,15 @@
         "title": "nerea-avatar"
       },
       {
-        "label": "composer",
-        "url": "composer.html",
-        "title": "nerea-composer",
-        "width": 360,
-        "height": 300,
-        "transparent": true,
-        "decorations": false,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "resizable": false,
+        "label": "history",
+        "title": "nerea historial",
+        "width": 900,
+        "height": 720,
+        "minWidth": 620,
+        "minHeight": 420,
         "visible": false,
-        "shadow": false
+        "resizable": true,
+        "url": "index.html"
       }
     ],
     "security": {

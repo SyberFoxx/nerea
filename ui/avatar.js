@@ -1,14 +1,29 @@
-const sprite = document.getElementById("sprite");
+const tauri = window.__TAURI__;
+
 const stage = document.getElementById("stage");
+const sprite = document.getElementById("sprite");
+const grip = document.getElementById("grip");
+const panel = document.getElementById("panel");
+const log = document.getElementById("log");
+const form = document.getElementById("composer");
+const prompt = document.getElementById("prompt");
+const sendButton = document.getElementById("send");
+const stopButton = document.getElementById("stop");
+const menuButton = document.getElementById("menu-button");
+const menu = document.getElementById("menu");
+const closeButton = document.getElementById("close-button");
 const subtitle = document.getElementById("subtitle");
 
-const tauri = window.__TAURI__;
 const IDLE_AFTER_MS = 4 * 60 * 1000;
 const SUBTITLE_TAIL_MS = 500;
+const DOUBLE_PRESS_MS = 360;
+const PRESS_SLOP_PX = 8;
+const RECENT_MESSAGES = 40;
 
 /** Which frame a phrase-bank category shows while it is spoken. */
 const CATEGORY_FRAME = {
   boot: "hello",
+  resume: "hello",
   timeofday: "hello",
   idle: "idle",
   back: "back",
@@ -26,24 +41,63 @@ const CATEGORY_FRAME = {
 };
 
 let frames = new Map();
-let current = "idle";
 let turnFrame = "idle";
-let speaking = null;
 let speakingTimer = null;
+let speaking = false;
 let idleTimer = null;
+let panelOpen = false;
+let busy = false;
+let streamingBubble = null;
+let lastPress = 0;
+let lastPoint = { x: 0, y: 0 };
+let armReset = null;
+
+function invoke(command, args) {
+  return tauri.core.invoke(command, args);
+}
 
 function show(name) {
   const source = frames.get(name) ?? frames.get("idle");
   if (!source) return;
-  current = name;
   if (sprite.src !== source) sprite.src = source;
   sprite.dataset.state = name;
 }
 
+function scrollToEnd() {
+  log.scrollTop = log.scrollHeight;
+}
+
+function addBubble(role, text = "") {
+  log.querySelector(".empty")?.remove();
+
+  const article = document.createElement("article");
+  article.className = `bubble ${role}`;
+
+  const body = document.createElement("p");
+  body.textContent = text;
+  article.append(body);
+  log.append(article);
+  scrollToEnd();
+
+  return body;
+}
+
+function clearLog(message) {
+  log.replaceChildren();
+  if (message) {
+    const empty = document.createElement("p");
+    empty.className = "empty";
+    empty.textContent = message;
+    log.append(empty);
+  }
+}
+
+/* ---------------------------------------------------------------- speech */
+
 function endSpeech() {
   clearTimeout(speakingTimer);
   speakingTimer = null;
-  speaking = null;
+  speaking = false;
   subtitle.hidden = true;
   show(turnFrame);
 }
@@ -52,7 +106,7 @@ function playLine(line) {
   if (!line) return;
 
   clearTimeout(speakingTimer);
-  speaking = line.id;
+  speaking = true;
 
   show(CATEGORY_FRAME[line.category] ?? "idle");
   subtitle.textContent = line.es;
@@ -60,14 +114,99 @@ function playLine(line) {
 
   const hold = Math.min((line.duration_ms ?? 2000) + SUBTITLE_TAIL_MS, 12_000);
   speakingTimer = setTimeout(endSpeech, hold);
+
+  if (panelOpen) addBubble("murmur", line.es);
 }
 
 function noteActivity() {
   clearTimeout(idleTimer);
   idleTimer = setTimeout(() => {
-    if (!speaking && tauri?.core) tauri.core.invoke("say", { category: "idle" });
+    if (!speaking && !busy && tauri?.core) invoke("say", { category: "idle" }).catch(() => {});
   }, IDLE_AFTER_MS);
 }
+
+/* ----------------------------------------------------------------- panel */
+
+async function loadRecent() {
+  if (busy) return;
+
+  const entries = await invoke("transcript", { limit: RECENT_MESSAGES }).catch(() => []);
+  clearLog(entries.length === 0 ? "Todavía no hablamos de nada." : "");
+  for (const entry of entries) {
+    addBubble(entry.role === "user" ? "user" : "nerea", entry.content);
+  }
+  scrollToEnd();
+}
+
+async function openPanel() {
+  if (panelOpen) return;
+  panelOpen = true;
+
+  await invoke("open_panel").catch(() => {});
+  panel.hidden = false;
+  stage.dataset.panel = "open";
+
+  await loadRecent();
+  prompt.focus();
+  noteActivity();
+}
+
+async function closePanel() {
+  if (!panelOpen) return;
+  panelOpen = false;
+
+  hideMenu();
+  panel.hidden = true;
+  stage.dataset.panel = "closed";
+  await invoke("close_panel").catch(() => {});
+}
+
+function togglePanel() {
+  return panelOpen ? closePanel() : openPanel();
+}
+
+function hideMenu() {
+  menu.hidden = true;
+  menuButton.setAttribute("aria-expanded", "false");
+}
+
+function toggleMenu() {
+  const open = menu.hidden;
+  menu.hidden = !open;
+  menuButton.setAttribute("aria-expanded", String(open));
+}
+
+/* -------------------------------------------------------------- sending */
+
+function setBusy(value) {
+  busy = value;
+  sendButton.disabled = value;
+  stopButton.hidden = !value;
+  prompt.disabled = value;
+  if (!value) prompt.focus();
+}
+
+function describe(error) {
+  return typeof error === "string" ? error : (error?.message ?? "algo salió mal");
+}
+
+async function send(text) {
+  addBubble("user", text);
+  streamingBubble = addBubble("nerea");
+  setBusy(true);
+
+  try {
+    await invoke("send_message", { text });
+  } catch (error) {
+    streamingBubble.textContent = `⚠ ${describe(error)}`;
+    streamingBubble.parentElement.classList.add("failed");
+  } finally {
+    streamingBubble = null;
+    setBusy(false);
+  }
+}
+
+/* --------------------------------------------------------------- events */
 
 async function loadManifest() {
   const response = await fetch("avatar/manifest.json");
@@ -76,12 +215,7 @@ async function loadManifest() {
 }
 
 async function redock() {
-  if (!tauri?.core) return;
-  try {
-    await tauri.core.invoke("dock");
-  } catch {
-    /* no hyprctl on this compositor: stay where the window manager put us */
-  }
+  await invoke("dock").catch(() => {});
 }
 
 async function start() {
@@ -92,37 +226,114 @@ async function start() {
     stage.dataset.fallback = "true";
   });
 
-  if (tauri?.core) {
-    await tauri.event.listen("nerea://state", (event) => {
-      turnFrame = event.payload.state;
-      noteActivity();
-      if (!speaking) show(turnFrame);
-    });
-
-    await tauri.event.listen("nerea://say", (event) => playLine(event.payload));
+  if (!tauri?.core) {
+    stage.dataset.fallback = "true";
+    return;
   }
 
-  stage.addEventListener("dblclick", redock);
+  await tauri.event.listen("nerea://state", (event) => {
+    turnFrame = event.payload.state;
+    noteActivity();
+    if (!speaking) show(turnFrame);
+  });
 
-  stage.addEventListener("contextmenu", (event) => {
+  await tauri.event.listen("nerea://delta", (event) => {
+    if (!streamingBubble) return;
+    streamingBubble.textContent += event.payload.text;
+    scrollToEnd();
+  });
+
+  await tauri.event.listen("nerea://say", (event) => playLine(event.payload));
+
+  // Development aid: the shell can ask for the panel without a pointer.
+  await tauri.event.listen("nerea://panel", (event) => {
+    if (event.payload) openPanel();
+    else closePanel();
+  });
+
+  /* A double press on her toggles the panel; a single press starts the drag
+     the window manager already handles through the drag region. */
+  grip.addEventListener("mousedown", (event) => {
+    if (event.button !== 0) return;
+    const now = performance.now();
+    const far =
+      Math.abs(event.clientX - lastPoint.x) > PRESS_SLOP_PX ||
+      Math.abs(event.clientY - lastPoint.y) > PRESS_SLOP_PX;
+
+    if (now - lastPress < DOUBLE_PRESS_MS && !far) {
+      lastPress = 0;
+      togglePanel();
+      return;
+    }
+
+    lastPress = now;
+    lastPoint = { x: event.clientX, y: event.clientY };
+    noteActivity();
+  });
+
+  grip.addEventListener("contextmenu", (event) => {
     event.preventDefault();
-    if (tauri?.core) tauri.core.invoke("open_composer");
+    if (panelOpen) toggleMenu();
+    else openPanel();
+  });
+
+  menuButton.addEventListener("click", toggleMenu);
+  closeButton.addEventListener("click", closePanel);
+
+  menu.addEventListener("click", async (event) => {
+    const action = event.target?.dataset?.action;
+    if (!action) return;
+
+    if (action === "reset") {
+      // Two steps, no modal dialog: the second press has to come quickly.
+      if (!armReset) {
+        const label = event.target.textContent;
+        armReset = setTimeout(() => {
+          armReset = null;
+          event.target.textContent = label;
+        }, 4000);
+        event.target.textContent = "¿Borrar todo? Volvé a tocar";
+        return;
+      }
+      clearTimeout(armReset);
+      armReset = null;
+      event.target.textContent = "Borrar memoria";
+      await invoke("reset_conversation").catch(() => {});
+      clearLog("Todavía no hablamos de nada.");
+      hideMenu();
+      return;
+    }
+
+    hideMenu();
+
+    if (action === "history") await invoke("open_history").catch(() => {});
+    if (action === "dock") await invoke("dock").catch(() => {});
+    if (action === "quit") await invoke("quit").catch(() => {});
+  });
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const text = prompt.value.trim();
+    if (!text || busy) return;
+    prompt.value = "";
+    send(text);
+  });
+
+  stopButton.addEventListener("click", () => invoke("cancel_stream").catch(() => {}));
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (!menu.hidden) hideMenu();
+    else if (panelOpen) closePanel();
   });
 
   show("idle");
   noteActivity();
   await redock();
-
-  if (tauri?.core) {
-    try {
-      await tauri.core.invoke("say", { category: "boot" });
-    } catch {
-      /* the bank is optional */
-    }
-  }
+  await invoke("greet").catch(() => {});
 }
 
 start().catch((error) => {
   console.error("avatar failed to start", error);
-  document.body.dataset.error = "true";
+  stage.dataset.fallback = "true";
 });

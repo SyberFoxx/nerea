@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -7,8 +7,37 @@
     <link rel="stylesheet" href="avatar.css" />
   </head>
   <body>
-    <div id="stage" class="stage" data-tauri-drag-region>
-      <img id="sprite" class="sprite" alt="Nerea" draggable="false" />
+    <div id="stage" class="stage" data-panel="closed">
+      <section id="panel" class="panel" hidden aria-label="Chat con Nerea">
+        <header class="bar">
+          <span class="name">nerea</span>
+          <button id="menu-button" class="icon" type="button" title="Opciones" aria-expanded="false">⋯</button>
+          <button id="close-button" class="icon" type="button" title="Cerrar (Esc)">✕</button>
+        </header>
+
+        <nav id="menu" class="menu" hidden>
+          <button type="button" data-action="history">Historial completo</button>
+          <button type="button" data-action="dock">Anclar a la ventana</button>
+          <button type="button" data-action="reset">Borrar memoria</button>
+          <button type="button" data-action="quit">Cerrar Nerea</button>
+        </nav>
+
+        <div id="log" class="log" aria-live="polite">
+          <p class="empty">Todavía no hablamos de nada.</p>
+        </div>
+
+        <form id="composer" class="composer">
+          <label class="sr-only" for="prompt">Mensaje</label>
+          <input id="prompt" type="text" placeholder="Decile algo…" autocomplete="off" />
+          <button id="send" class="send" type="submit" title="Enviar">↵</button>
+          <button id="stop" class="icon" type="button" title="Detener" hidden>■</button>
+        </form>
+      </section>
+
+      <div id="grip" class="grip" data-tauri-drag-region>
+        <img id="sprite" class="sprite" alt="Nerea" draggable="false" />
+      </div>
+
       <p id="subtitle" class="subtitle" hidden></p>
     </div>
     <script type="module" src="avatar.js"></script>
