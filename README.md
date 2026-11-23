@@ -265,7 +265,8 @@ speak = true
 The engine is an app-managed child process: it boots lazily while the model is writing (so its ~6 s
 start hides inside the reply), is adopted instead of duplicated if a server is already listening,
 stops after `NEREA_TTS_IDLE_SECS` of silence (900 by default), and is killed when the app exits.
-Its log is `/tmp/nerea-tts.log`.
+If the app is killed without cleaning up, the engine notices it was reparented and leaves on its own
+`within a couple of seconds` — it never squats on the GPU. Its log is `/tmp/nerea-tts.log`.
 
 Once enabled, every reply is spoken. The Spanish answer is rendered into one faithful Japanese line (one small
 call, with her terms enforced: `私の竜`, `愛しの竜`, the `あらあら` tic), synthesized locally, and

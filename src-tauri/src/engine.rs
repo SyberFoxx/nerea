@@ -143,6 +143,7 @@ fn spawn() -> Result<(), String> {
     let child = Command::new(python)
         .arg(script)
         .current_dir(&root)
+        .env("NEREA_TTS_PARENT", std::process::id().to_string())
         .stdin(Stdio::null())
         .stdout(stdout)
         .stderr(stderr)

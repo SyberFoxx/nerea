@@ -22,6 +22,8 @@ NEREA_TTS_PORT and NEREA_TTS_CONFIG override the port and the weights config.
 import os
 import runpy
 import sys
+import threading
+import time
 
 import soundfile as sf
 import torch
@@ -33,6 +35,22 @@ CONFIG = os.environ.get("NEREA_TTS_CONFIG", "GPT_SoVITS/configs/tts_infer.yaml")
 
 # Graph capture per shape is the 16 s; measured, not guessed.
 os.environ.setdefault("CUDAGraph", "0")
+
+# The app passes its own pid: if it dies without cleaning up (SIGKILL, a crash),
+# this process is reparented and leaves with it instead of squatting on the GPU.
+PARENT = os.environ.get("NEREA_TTS_PARENT")
+
+
+def watch_parent():
+    parent = int(PARENT)
+    while True:
+        time.sleep(2)
+        if os.getppid() != parent:
+            os._exit(0)
+
+
+if PARENT:
+    threading.Thread(target=watch_parent, daemon=True).start()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ENGINE = os.path.join(os.path.dirname(HERE), "tools", "voice", "gpt-sovits")

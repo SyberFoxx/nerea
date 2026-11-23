@@ -27,6 +27,12 @@ pub fn run() {
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     std::thread::sleep(std::time::Duration::from_millis(1200));
+                    if let Err(err) = engine::ensure().await {
+                        eprintln!("nerea voice: engine unavailable: {err}");
+                        return;
+                    }
+                    eprintln!("nerea voice: engine {:?}", engine::state());
+
                     let state = handle.state::<state::AppState>().inner().clone();
                     let Ok(provider) = state.ensure_provider().await else {
                         eprintln!("nerea voice: no provider");
