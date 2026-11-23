@@ -1,0 +1,18 @@
+[package]
+name = "nerea-cli"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Headless harness to exercise the nerea-core providers"
+
+[[bin]]
+name = "nerea"
+path = "src/main.rs"
+
+[dependencies]
+nerea-core.workspace = true
+tokio.workspace = true
+futures.workspace = true
+clap.workspace = true
+rpassword.workspace = true
