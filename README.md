@@ -153,6 +153,24 @@ cargo run -p nerea-cli -- config show
 cargo run -p nerea-desktop                      # the window
 ```
 
+## Voice (local, not in this repo)
+
+The voice engine is machine-local: GPT-SoVITS in a Python 3.11 venv under `tools/voice/`
+(gitignored, ~13 GB with weights). The reference clip is a real person's voice and never leaves
+`assets/voice/`.
+
+```bash
+tools/voice/.venv/bin/python tools/voice/serve_tts.py     # 127.0.0.1:9880
+curl "http://127.0.0.1:9880/tts?text=...&text_lang=ja&ref_audio_path=...&prompt_lang=ja&prompt_text=..."
+```
+
+`s serve_tts.py` exists because torchaudio 2.9+ delegates audio I/O to torchcodec, whose wheels do
+not load against the CUDA 12.8 torch build required by the RTX 50 series; the launcher routes
+`load`/`save` through soundfile instead.
+
+Design intent: the model writes Spanish, the reply is translated to one short Japanese line, and
+that line is spoken with the cloned voice. Text in Spanish, voice in Japanese.
+
 ## Verification
 
 ```bash
