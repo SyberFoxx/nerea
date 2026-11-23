@@ -201,31 +201,74 @@ where
 {
     let body = Box::pin(body);
     Box::pin(stream::unfold(
-        (body, Vec::new()),
-        |(mut body, mut buffer)| async move {
+        (body, Vec::new(), false),
+        |(mut body, mut buffer, mut exhausted)| async move {
             loop {
-                // Events end at a blank line; `\n\n` can never split a UTF-8 char.
-                if let Some(end) = buffer.windows(2).position(|w| w == b"\n\n") {
+                if let Some((end, separator)) = event_boundary(&buffer) {
                     let event = String::from_utf8_lossy(&buffer[..end]).into_owned();
-                    buffer.drain(..end + 2);
+                    buffer.drain(..end + separator);
 
-                    match sse_data(&event) {
-                        Some(data) if data.trim() == "[DONE]" => return None,
-                        Some(data) => return Some((decode_delta(&data), (body, buffer))),
-                        None => continue,
+                    match classify(&event) {
+                        SseEvent::Done => return None,
+                        SseEvent::Ignore => continue,
+                        SseEvent::Delta(item) => return Some((item, (body, buffer, exhausted))),
                     }
+                }
+
+                if exhausted {
+                    // Flush a final event that arrived without its blank line.
+                    if buffer.is_empty() {
+                        return None;
+                    }
+                    let event = String::from_utf8_lossy(&buffer).into_owned();
+                    buffer.clear();
+                    return match classify(&event) {
+                        SseEvent::Delta(item) => Some((item, (body, buffer, exhausted))),
+                        SseEvent::Done | SseEvent::Ignore => None,
+                    };
                 }
 
                 match body.as_mut().next().await {
                     Some(Ok(chunk)) => buffer.extend_from_slice(&chunk),
                     Some(Err(err)) => {
-                        return Some((Err(ProviderError::Network(err)), (body, buffer)));
+                        return Some((Err(ProviderError::Network(err)), (body, buffer, exhausted)));
                     }
-                    None => return None,
+                    None => exhausted = true,
                 }
             }
         },
     ))
+}
+
+enum SseEvent {
+    Delta(Result<String, ProviderError>),
+    Done,
+    Ignore,
+}
+
+fn classify(event: &str) -> SseEvent {
+    match sse_data(event) {
+        None => SseEvent::Ignore,
+        Some(data) if data.trim() == "[DONE]" => SseEvent::Done,
+        Some(data) => SseEvent::Delta(decode_delta(&data)),
+    }
+}
+
+/// Offset of the blank line ending the event, plus its length.
+/// Accepts both `\n\n` and the CRLF form allowed by the SSE spec.
+fn event_boundary(buffer: &[u8]) -> Option<(usize, usize)> {
+    let lf = buffer.windows(2).position(|w| w == b"\n\n").map(|at| (at, 2));
+    let crlf = buffer
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .map(|at| (at, 4));
+
+    match (lf, crlf) {
+        (Some(lf), Some(crlf)) if crlf.0 < lf.0 => Some(crlf),
+        (Some(lf), _) => Some(lf),
+        (None, Some(crlf)) => Some(crlf),
+        (None, None) => None,
+    }
 }
 
 /// Collects every `data:` line of one event, per the SSE spec.
@@ -347,5 +390,57 @@ mod tests {
             }
             other => panic!("unexpected error: {other:?}"),
         }
+    }
+
+    #[test]
+    fn sse_data_joins_multiple_data_lines() {
+        assert_eq!(
+            sse_data("data: {\"a\":\ndata: 1}").as_deref(),
+            Some("{\"a\":\n1}")
+        );
+    }
+
+    fn chunked(parts: Vec<&'static [u8]>) -> ChatStream {
+        parse_sse(stream::iter(
+            parts
+                .into_iter()
+                .map(|part| Ok::<Bytes, reqwest::Error>(Bytes::from_static(part))),
+        ))
+    }
+
+    async fn drain_tokens(stream: ChatStream) -> Vec<String> {
+        let mut stream = stream;
+        let mut tokens = Vec::new();
+        while let Some(item) = stream.next().await {
+            tokens.push(item.expect("stream item"));
+        }
+        tokens
+    }
+
+    #[tokio::test]
+    async fn sse_parses_crlf_event_boundaries() {
+        let body: &'static [u8] = b"data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\r\n\r\ndata: [DONE]\r\n\r\n";
+        assert_eq!(drain_tokens(chunked(vec![body])).await, vec!["Hello".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn sse_flushes_final_event_without_blank_line() {
+        let body: &'static [u8] = b"data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"world\"}}]}";
+        assert_eq!(
+            drain_tokens(chunked(vec![body])).await,
+            vec!["Hello".to_string(), "world".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn sse_buffers_event_split_inside_boundary() {
+        let body: &'static [u8] =
+            b"data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\ndata: [DONE]\n\n";
+        let cut = 47; // between the two '\n' of the first boundary
+        let (first, second) = body.split_at(cut);
+        assert_eq!(
+            drain_tokens(chunked(vec![first, second])).await,
+            vec!["Hi".to_string()]
+        );
     }
 }
