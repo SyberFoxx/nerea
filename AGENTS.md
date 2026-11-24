@@ -150,3 +150,13 @@ Ubuntu 24.04+.
 
 `odd/tasks/` holds the specs (`S#`), tasks (`T#`), verbatim user requests (`L#`) and measured
 evidence. Append to it; do not rewrite history. Engram mirrors the decisions under `nerea/*`.
+
+## Backlog
+
+| file | what | state |
+|---|---|---|
+| `odd/tasks/memory-layers.md` | layered memory: identity core, knowledge cards, rolling summary | proposed — waits on the write-policy decision |
+| `odd/tasks/system-access-tier-a.md` | read-only tools | shipped in 0.6.2 |
+
+Tier B (commands behind a per-action confirmation) is still undesigned on purpose: the shape of the
+permission is the user's decision, not the agent's.
