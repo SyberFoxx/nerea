@@ -175,3 +175,68 @@ body {
   overflow-wrap: anywhere;
   user-select: text;
 }
+
+.audit {
+  margin: 10px 16px 0;
+  border: 1px solid #22333c;
+  border-left: 2px solid #3d7d8a;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #101a1f;
+  max-height: 160px;
+  overflow-y: auto;
+  flex: 0 0 auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.audit h2 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #6fb7c2;
+}
+
+.audit-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.call {
+  display: grid;
+  grid-template-columns: 52px 62px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+  color: #cdd9df;
+  user-select: text;
+}
+
+.call-when,
+.call-size {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.call-tool {
+  color: #6fb7c2;
+  font-family: ui-monospace, "JetBrains Mono", monospace;
+  font-size: 11.5px;
+}
+
+.call-what {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.call.failed .call-tool,
+.call.failed .call-size {
+  color: #d98a6a;
+}

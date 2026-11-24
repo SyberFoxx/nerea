@@ -14,6 +14,13 @@ const MAX_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_PART_BYTES: u64 = 48 * 1024 * 1024;
 const HEAD: usize = 8_192;
 
+/// Not text at all. Naming the format once is better than a parser failing with
+/// a warning that says nothing.
+const MEDIA: &[&str] = &[
+    "png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "ico", "heic", "mp3", "wav", "ogg",
+    "flac", "m4a", "opus", "mp4", "mkv", "webm", "mov", "avi", "m4v",
+];
+
 /// Search skips the formats that need a real parser: they are slow and noisy.
 pub fn is_plain_text(path: &Path) -> bool {
     !matches!(extension(path).as_str(), "pdf" | "docx" | "odt" | "epub")
@@ -32,7 +39,15 @@ pub fn extract(path: &Path) -> Result<String, String> {
         ));
     }
 
-    match extension(path).as_str() {
+    let format = extension(path);
+    if MEDIA.contains(&format.as_str()) {
+        return Err(format!(
+            "no sé leer imágenes, audio ni video: {} es un archivo .{format}",
+            path.display()
+        ));
+    }
+
+    match format.as_str() {
         "pdf" => {
             let bytes = fs::read(path).map_err(|err| err.to_string())?;
             let text = pdf_extract::extract_text_from_mem(&bytes)
@@ -217,9 +232,20 @@ mod tests {
     }
 
     #[test]
+    /// A picture is named as one: the binary warning is for what has no name.
+    fn a_picture_is_named_instead_of_parsed() {
+        let dir = scratch("picture");
+        let file = dir.join("avatar.png");
+        fs::write(&file, [0x89, b'P', b'N', b'G', 0, 0, 1]).expect("write");
+
+        let err = extract(&file).expect_err("must refuse");
+        assert!(err.contains("imágenes"), "{err}");
+    }
+
+    #[test]
     fn a_binary_file_is_refused_with_a_reason() {
         let dir = scratch("binary");
-        let file = dir.join("avatar.png");
+        let file = dir.join("blob.bin");
         fs::write(&file, [0x89, b'P', b'N', b'G', 0, 0, 1]).expect("write");
 
         let err = extract(&file).expect_err("must refuse");

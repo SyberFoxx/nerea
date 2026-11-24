@@ -25,7 +25,7 @@ tools/voice           machine-local, gitignored: venv + GPT-SoVITS weights (~11 
 ```bash
 cargo build -p nerea-desktop                 # debug build
 cargo run -p nerea-desktop                   # the app
-cargo test                                   # 120 tests, no network
+cargo test                                   # 126 tests, no network
 cargo clippy --all-targets -- -D warnings
 node --check ui/avatar.js && node --check ui/main.js
 
@@ -59,6 +59,8 @@ its prose. That is deliberate: with a JSON block in the prompt a flash model wou
   around them. `~/.ssh`, `~/.gnupg`, `~/.pki`, the browser profiles, her own data and config
   dirs, `/etc/shadow`, `/proc`, `/sys` and credential-shaped names (`id_rsa`, `.env`, `*.pem`,
   `*.key`) are never readable.
+- `read_file` takes `numbers: true` and then prints `52:linea`, the same shape `grep -n` uses.
+  `list_dir` marks each row `d`, `l` or `f`, because a link listed as a file is a lie.
 - Every call appends one line to `~/.local/share/nerea/audit.jsonl`. One observation is clipped at
   8k characters and one message may read at most 16k in total (`tools::OBSERVATION_BUDGET`); past
   that a call is answered with "ya tenés material para contestar" instead of more text.

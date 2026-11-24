@@ -335,6 +335,15 @@ pub async fn open_history(app: AppHandle) -> Result<(), String> {
     window.set_focus().map_err(|err| err.to_string())
 }
 
+/// The last calls she made, for the history window.
+///
+/// One command reads the log so the page never parses a file and the user never
+/// needs a terminal to see what she touched.
+#[tauri::command]
+pub async fn audit_calls() -> Result<Vec<nerea_core::tools::audit::Call>, String> {
+    Ok(nerea_core::tools::audit::recent(50))
+}
+
 #[tauri::command]
 pub async fn close_history(app: AppHandle) -> Result<(), String> {
     let window = app

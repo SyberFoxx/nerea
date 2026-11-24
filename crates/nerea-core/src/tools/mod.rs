@@ -57,8 +57,8 @@ pub fn specs() -> Vec<ToolSpec> {
         ToolSpec {
             name: "read_file".to_owned(),
             description: "Read a file and return its text: source code, Markdown, JSON, PDF, \
-Word (.docx), OpenDocument (.odt), EPUB or HTML. Long files come back in windows of lines; use \
-`offset` to continue where the previous answer stopped."
+Word (.docx), OpenDocument (.odt), EPUB or HTML. It cannot read images, audio or video. Long files \
+come back in windows of lines; use `offset` to continue where the previous answer stopped."
                 .to_owned(),
             parameters: json!({
                 "type": "object",
@@ -74,6 +74,10 @@ Word (.docx), OpenDocument (.odt), EPUB or HTML. Long files come back in windows
                     "limit": {
                         "type": "integer",
                         "description": "How many lines to return. Default 300, max 1200"
+                    },
+                    "numbers": {
+                        "type": "boolean",
+                        "description": "Prefix every line with its number, the way grep -n prints it. Default false"
                     }
                 },
                 "required": ["path"]
@@ -259,6 +263,7 @@ fn read_file(args: &Value) -> Result<String, String> {
     let path = guard::resolve(string_arg(args, "path")?)?;
     let offset = number_arg(args, "offset").unwrap_or(0);
     let limit = number_arg(args, "limit").unwrap_or(DEFAULT_LINES).clamp(1, MAX_LINES);
+    let numbered = args.get("numbers").and_then(Value::as_bool).unwrap_or(false);
 
     let text = extract::extract(&path)?;
     let lines: Vec<&str> = text.lines().collect();
@@ -277,7 +282,16 @@ fn read_file(args: &Value) -> Result<String, String> {
 
     let end = (start + limit).min(total);
     let mut out = format!("# {} (líneas {}-{} de {})\n", path.display(), start + 1, end, total);
-    out.push_str(&lines[start..end].join("\n"));
+
+    if numbered {
+        // `grep -n` prints `52:text`, so a citation she makes can be checked
+        // against the same file without translating anything.
+        for (index, line) in lines[start..end].iter().enumerate() {
+            out.push_str(&format!("{}:{line}\n", start + index + 1));
+        }
+    } else {
+        out.push_str(&lines[start..end].join("\n"));
+    }
 
     if end < total {
         out.push_str(&format!(
@@ -296,30 +310,39 @@ fn list_dir(args: &Value) -> Result<String, String> {
     }
 
     let entries = std::fs::read_dir(&path).map_err(|err| format!("no puedo mirar ahí: {err}"))?;
-    let mut rows: Vec<(bool, String, u64)> = Vec::new();
+    let mut rows: Vec<(char, String, u64)> = Vec::new();
 
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
-        let (is_dir, size) = match entry.metadata() {
-            Ok(meta) => (meta.is_dir(), meta.len()),
-            Err(_) => (false, 0),
+        // `file_type` does not follow a link, which is the whole point: a link
+        // listed as a file is a lie the next read pays for.
+        let Ok(kind) = entry.file_type() else { continue };
+        let mark = if kind.is_symlink() {
+            'l'
+        } else if kind.is_dir() {
+            'd'
+        } else {
+            'f'
         };
-        rows.push((is_dir, name, size));
+        let size = entry.metadata().map(|meta| meta.len()).unwrap_or(0);
+        rows.push((mark, name, size));
     }
 
     if rows.is_empty() {
         return Ok(format!("{} está vacía.", path.display()));
     }
 
-    rows.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
+    rows.sort_by(|left, right| {
+        rank(left.0).cmp(&rank(right.0)).then_with(|| left.1.cmp(&right.1))
+    });
 
     let shown = rows.len().min(MAX_ENTRIES);
     let mut out = format!("{} ({} entradas)\n", path.display(), rows.len());
-    for (is_dir, name, size) in rows.iter().take(shown) {
-        if *is_dir {
-            out.push_str(&format!("  {name}/\n"));
-        } else {
-            out.push_str(&format!("  {name}  ({} bytes)\n", size));
+    for (mark, name, size) in rows.iter().take(shown) {
+        match mark {
+            'd' => out.push_str(&format!("  d  {name}/\n")),
+            'l' => out.push_str(&format!("  l  {name}\n")),
+            _ => out.push_str(&format!("  f  {name}  ({} bytes)\n", size)),
         }
     }
     if rows.len() > shown {
@@ -411,6 +434,15 @@ fn search(args: &Value) -> Result<String, String> {
     );
     out.push_str(&hits.join("\n"));
     Ok(clip(out))
+}
+
+/// Folders first, then links, then files.
+fn rank(mark: char) -> u8 {
+    match mark {
+        'd' => 0,
+        'l' => 1,
+        _ => 2,
+    }
 }
 
 fn collect_hits(file: &Path, needle: &str, limit: usize, hits: &mut Vec<String>) {
@@ -586,7 +618,7 @@ mod tests {
     #[test]
     fn read_file_on_a_binary_explains_itself() {
         let dir = scratch("binary");
-        let file = dir.join("sound.wav");
+        let file = dir.join("blob.dat");
         fs::write(&file, [0, 1, 2, 3]).expect("write");
 
         let outcome = run(&call("read_file", serde_json::json!({ "path": file })));
@@ -679,6 +711,53 @@ mod tests {
         assert!(partial.ok, "{}", partial.observation);
         assert!(partial.observation.contains("recortado"), "{}", partial.observation);
         assert_eq!(budget.left(), 0);
+    }
+
+    /// `grep -n` prints `52:text`, so a citation she makes has to match it.
+    #[test]
+    fn numbers_prefix_each_line_when_asked() {
+        let dir = scratch("numbers");
+        let file = dir.join("cap.txt");
+        fs::write(&file, "primera\nsegunda\ntercera\n").expect("write");
+
+        let plain = run(&call("read_file", serde_json::json!({ "path": file })));
+        assert!(plain.ok, "{}", plain.observation);
+        assert!(!plain.observation.contains("2:segunda"), "{}", plain.observation);
+
+        let numbered = run(&call("read_file", serde_json::json!({ "path": file, "numbers": true })));
+        assert!(numbered.ok, "{}", numbered.observation);
+        assert!(numbered.observation.contains("2:segunda"), "{}", numbered.observation);
+        assert!(numbered.observation.contains("3:tercera"), "{}", numbered.observation);
+    }
+
+    /// A listing that calls a link a file is a listing that lies.
+    #[test]
+    fn list_dir_names_the_kind_of_each_entry() {
+        let dir = scratch("kinds");
+        fs::create_dir(dir.join("Novela")).expect("dir");
+        fs::write(dir.join("notas.txt"), "hola").expect("write");
+        std::os::unix::fs::symlink(dir.join("notas.txt"), dir.join("atajo")).expect("link");
+
+        let outcome = run(&call("list_dir", serde_json::json!({ "path": dir })));
+
+        assert!(outcome.ok, "{}", outcome.observation);
+        assert!(outcome.observation.contains("d  Novela/"), "{}", outcome.observation);
+        assert!(outcome.observation.contains("f  notas.txt"), "{}", outcome.observation);
+        assert!(outcome.observation.contains("l  atajo"), "{}", outcome.observation);
+    }
+
+    /// A picture is not a mystery: saying what it is beats a failed parse.
+    #[test]
+    fn a_picture_says_it_cannot_be_read() {
+        let dir = scratch("picture");
+        let file = dir.join("foto.png");
+        fs::write(&file, [0x89, b'P', b'N', b'G']).expect("write");
+
+        let outcome = run(&call("read_file", serde_json::json!({ "path": file })));
+
+        assert!(!outcome.ok);
+        assert!(outcome.observation.contains("imágenes"), "{}", outcome.observation);
+        assert!(!outcome.observation.contains("binario"), "{}", outcome.observation);
     }
 
     /// A minimal `.docx`: Word keeps the text in `word/document.xml` and nowhere

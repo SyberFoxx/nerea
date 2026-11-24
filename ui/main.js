@@ -7,6 +7,8 @@ const eraseButton = document.getElementById("erase");
 const memoryBlock = document.getElementById("memory");
 const memoryText = document.getElementById("memory-text");
 const closeButton = document.getElementById("close");
+const auditBlock = document.getElementById("audit");
+const auditList = document.getElementById("audit-list");
 
 let armErase = null;
 
@@ -25,6 +27,13 @@ function formatTime(at) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatClock(at) {
+  if (!at) return "";
+  const date = new Date(at);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
 function describe(error) {
@@ -60,6 +69,50 @@ function renderEntry(entry) {
   return article;
 }
 
+// What she touched, straight from the audit log. Read-only on purpose: this is
+// the panel that makes "she can read my machine" something you can live with.
+async function loadAudit() {
+  if (!auditBlock || !auditList) return;
+
+  try {
+    const calls = await invoke("audit_calls");
+    auditList.replaceChildren();
+    auditBlock.hidden = calls.length === 0;
+
+    if (calls.length === 0) return;
+
+    const fragment = document.createDocumentFragment();
+    for (const call of calls) {
+      const item = document.createElement("li");
+      item.className = call.ok ? "call" : "call failed";
+
+      const when = document.createElement("span");
+      when.className = "call-when";
+      when.textContent = formatClock(call.at);
+
+      const tool = document.createElement("span");
+      tool.className = "call-tool";
+      tool.textContent = call.tool;
+
+      const what = document.createElement("span");
+      what.className = "call-what";
+      what.textContent = call.summary;
+
+      const size = document.createElement("span");
+      size.className = "call-size";
+      size.textContent = call.ok ? `${call.bytes} b` : "falló";
+
+      item.append(when, tool, what, size);
+      fragment.append(item);
+    }
+
+    auditList.append(fragment);
+  } catch {
+    // The audit is a window into her work, never a reason to break the history.
+    auditBlock.hidden = true;
+  }
+}
+
 async function load() {
   try {
     const data = await invoke("history");
@@ -73,6 +126,7 @@ async function load() {
       `${data.messages} mensajes guardados · ~${data.tokens} tokens en disco · ` +
       `${data.status.turns} en contexto · ${data.status.memory_words} palabras de memoria${memory}`;
 
+    await loadAudit();
     log.replaceChildren();
 
     if (data.entries.length === 0) {

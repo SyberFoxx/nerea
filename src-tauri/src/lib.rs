@@ -183,6 +183,7 @@ pub fn run() {
             commands::open_history,
             commands::close_history,
             commands::history,
+            commands::audit_calls,
             commands::transcript,
             commands::quit,
             commands::update_status,

@@ -15,10 +15,10 @@ Source documents: `system-access-tiers.md` (tool surface and gaps) and
 | T1 | `search` deep inside `.docx` / `.odt` / `.pdf` | the novel is a `.docx`: today it cannot be searched by content, only found by listing | S | **shipped 0.7.0** |
 | T2 | `find` a file by name | she used `list_dir` three times in a row to locate one file | S | **shipped 0.7.0** |
 | T3 | a per-turn observation budget | rounds are bounded, tokens are not: worst case ~36k tokens against an 8k budget | S | **shipped 0.7.0** |
-| T4 | `numbers` flag on `read_file` | she can say "líneas 40-60" but cannot cite `52: texto` | S | proposed |
-| T5 | the audit, visible in the history window | today it is `tail -f`; without this, "she can touch my machine" is not livable | M | proposed |
-| T6 | `list_dir` distinguishes symlink, hidden and file | a listing that lies is worse than a short one | S | proposed |
-| T7 | honest tool descriptions for images, audio and video | she should stop trying instead of failing twice | S | proposed |
+| T4 | `numbers` flag on `read_file` | she can say "líneas 40-60" but cannot cite `52: texto` | S | **shipped 0.8.0** |
+| T5 | the audit, visible in the history window | today it is `tail -f`; without this, "she can touch my machine" is not livable | M | **shipped 0.8.0** |
+| T6 | `list_dir` distinguishes symlink, hidden and file | a listing that lies is worse than a short one | S | **shipped 0.8.0** |
+| T7 | honest tool descriptions for images, audio and video | she should stop trying instead of failing twice | S | **shipped 0.8.0** |
 | T8 | knowledge cards + `remember` (memory tier 2) | the only real memory gap; details in `memory-layers.md` | M | proposed |
 | T9 | tier B: permission model + `run_command` | the load-bearing piece of PC control; waits on the user's decisions | L | undesigned |
 | T10 | tier C: write, clipboard, notifications, media | only after B exists and is trusted | L | undesigned |
@@ -91,3 +91,4 @@ feature, and the row moves to the queue when that happens.
 | version | tasks | evidence |
 |---|---|---|
 | `0.7.0` | T1, T2, T3 | `search` with `deep: true` found "Capítulo 1" at line 1 inside `Nerea.docx`; `find` located both copies by name; 120 tests, clippy clean |
+| `0.8.0` | T4, T5, T6, T7 | tier A closed. `numbers` prints `52:línea`; `list_dir` marks `d`/`l`/`f`; a picture says it cannot be read; the history window lists the last fifty calls — seen in a screenshot, not assumed. 126 tests, clippy clean |
