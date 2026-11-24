@@ -30,7 +30,7 @@ S5. Paths are resolved (symlinks included) **before** the guard runs, and these
 S6. Every tool call appends one JSON line to `~/.local/share/nerea/audit.jsonl`:
     when, which tool, its arguments, whether it worked, how many bytes came back.
 
-S7. At most 3 tool calls per user message, and every observation is capped at
+S7. At most 3 rounds per user message (each round may ask for up to 4 files), and every observation is capped at
     12 000 characters, because each one is a round trip that costs context.
 
 S8. The tool block never reaches the chat: if the model answered with a tool
@@ -87,6 +87,18 @@ prose released the whole stream, JSON included.
 Fixed: `fence_start` finds the last fence anywhere in the buffer, `Undecided` holds it until the
 tag is readable, `trailing_backticks` holds at most two backticks so a fence split across chunks
 is still caught. Her prose is still streamed; the block never is. Three tests cover it.
+
+### L6 — native function calling replaces the protocol (0.6.2)
+
+`GET` on the provider proved it: with a `tools` array the endpoint answers
+`finish_reason: "tool_calls"` and a real `tool_calls` field, `content` empty. So the whole
+fenced-JSON protocol, the gate and its tests were removed and replaced by the native shape:
+`ToolSpec` → `tools`, `ToolCall` → `tool_calls`, results as `role: "tool"` messages bound by
+`tool_call_id`. Verified with a probe that mirrors the app's request: the model answered with
+`search {"query":"Nerea","path":"/home/ramses/Documentos/novela"}` and `list_dir` in one round.
+
+Consequence worth recording: streaming and tools coexist, because the calls arrive in their own
+field and never inside the text. Nothing has to be held back, and nothing can be half-said.
 
 ### L5b — she announces and does not act
 

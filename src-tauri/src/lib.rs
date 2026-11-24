@@ -144,6 +144,18 @@ pub fn run() {
                 });
             }
 
+            // Sends one message by itself: the only way to exercise the whole
+            // reply path (tools included) without a pointer.
+            if let Ok(ask) = std::env::var("NEREA_ASK") {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(3000)).await;
+                    let state = handle.state::<crate::state::AppState>();
+                    let bank = handle.state::<nerea_core::PhraseBank>();
+                    let _ = commands::send_message(handle.clone(), state, bank, ask).await;
+                });
+            }
+
             if std::env::var_os("NEREA_OPEN_PANEL").is_some() {
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {

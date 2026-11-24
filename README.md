@@ -298,7 +298,7 @@ cargo run -p nerea-cli -- config show|path|init
 cargo run -p nerea-desktop                       # the app
 NEREA_DEBUG=1 cargo run -p nerea-desktop         # log window and run events
 
-cargo test                                       # 111 tests, no network
+cargo test                                       # 112 tests, no network
 cargo clippy --all-targets -- -D warnings
 ```
 
@@ -321,7 +321,8 @@ cargo clippy --all-targets -- -D warnings
 | `0.5.7` | she knows her own story: full name, family, sect, temper and her dragon |
 | `0.5.8` | the goodbye belongs to leaving, not to closing the chat |
 | `0.6.0` | she can read the machine: code, text, PDF, Word, ODT, EPUB — read-only, guarded, logged |
-| **`0.6.1`** | the tool block is found anywhere in her answer, so it never leaks into the chat |
+| `0.6.1` | the tool block is found anywhere in her answer, so it never leaks into the chat |
+| **`0.6.2`** | reading is native function calling: she cannot say she will look and then not look |
 
 PC control grows one tier at a time, and tier A is read-only on purpose: files, never a shell.
 She asks with a fenced block, the app runs one of three named tools, and every call is written to

@@ -78,6 +78,7 @@ impl AiProvider for FallbackProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai::StreamItem;
     use crate::ai::Usage;
 
     type Reply = fn() -> Result<ChatResponse, ProviderError>;
@@ -90,10 +91,7 @@ mod tests {
     }
 
     fn request() -> ChatRequest {
-        ChatRequest {
-            messages: vec![crate::ai::ChatMessage::user("hi")],
-            session_id: "test-session".to_owned(),
-        }
+        ChatRequest::new(vec![crate::ai::ChatMessage::user("hi")], "test-session")
     }
 
     #[async_trait]
@@ -128,6 +126,7 @@ mod tests {
             model: "mock-model".to_owned(),
             finish_reason: None,
             usage: Some(Usage::default()),
+            tool_calls: Vec::new(),
         })
     }
 
@@ -136,6 +135,10 @@ mod tests {
     }
 
     fn tokens(items: Vec<Result<String, ProviderError>>) -> Result<ChatStream, ProviderError> {
+        let items: Vec<Result<StreamItem, ProviderError>> = items
+            .into_iter()
+            .map(|item| item.map(StreamItem::text))
+            .collect();
         Ok(Box::pin(stream::iter(items)))
     }
 
@@ -151,7 +154,7 @@ mod tests {
         let mut stream = stream;
         let mut items = Vec::new();
         while let Some(item) = stream.next().await {
-            items.push(item);
+            items.push(item.map(|item| item.content));
         }
         items
     }

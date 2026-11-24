@@ -32,10 +32,7 @@ async fn spawn_mock(code: u16, reason: &'static str, content_type: &'static str,
 }
 
 fn request() -> ChatRequest {
-    ChatRequest {
-        messages: vec![ChatMessage::user("hola")],
-        session_id: "test-session".to_owned(),
-    }
+    ChatRequest::new(vec![ChatMessage::user("hola")], "test-session")
 }
 
 fn provider(id: &str, base_url: String) -> Arc<dyn AiProvider> {
@@ -90,7 +87,7 @@ async fn streaming_fails_over_when_the_primary_refuses_the_request() {
 
     let mut text = String::new();
     while let Some(item) = stream.next().await {
-        text.push_str(&item.expect("token"));
+        text.push_str(&item.expect("token").content);
     }
     assert_eq!(text, "hola mundo");
 }
@@ -138,7 +135,7 @@ async fn a_stream_dropped_after_a_role_chunk_fails_over() {
 
     let mut text = String::new();
     while let Some(item) = stream.next().await {
-        text.push_str(&item.expect("token"));
+        text.push_str(&item.expect("token").content);
     }
     assert_eq!(text, "desde deepseek");
 }

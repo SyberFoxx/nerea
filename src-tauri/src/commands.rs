@@ -573,13 +573,13 @@ Máximo 60 caracteres. Reglas: llamá al usuario 私の竜 o 愛しの竜, nunca
 あらあら si aparece; no agregues nada que no esté en la respuesta. Devolvé solo la línea: sin comillas, \
 sin romaji, sin explicación.";
 
-    let request = nerea_core::ChatRequest {
-        messages: vec![
+    let request = nerea_core::ChatRequest::new(
+        vec![
             nerea_core::ChatMessage::system(PROMPT),
             nerea_core::ChatMessage::user(reply.chars().take(1_000).collect::<String>()),
         ],
-        session_id: "voice".to_owned(),
-    };
+        "voice",
+    );
 
     let answer = provider.chat_completion(&request).await.ok()?;
     let line = answer.content.trim().trim_matches('"').trim().to_owned();
@@ -592,13 +592,13 @@ async fn mood(provider: &std::sync::Arc<dyn nerea_core::AiProvider>, reply: &str
     const PROMPT: &str = "Clasificá el tono de la respuesta de un asistente en UNA sola palabra. \
 Opciones: neutral, bromista, carinosa, sorprendida. Respondé solo la palabra, sin explicar.";
 
-    let request = nerea_core::ChatRequest {
-        messages: vec![
+    let request = nerea_core::ChatRequest::new(
+        vec![
             nerea_core::ChatMessage::system(PROMPT),
             nerea_core::ChatMessage::user(reply.chars().take(600).collect::<String>()),
         ],
-        session_id: "mood".to_owned(),
-    };
+        "mood",
+    );
 
     let answer = provider.chat_completion(&request).await.ok()?;
     let word = answer.content.trim().to_lowercase();
@@ -707,7 +707,7 @@ pub async fn send_message(
     // Reading is a loop: she asks for a file, the app runs the tool, and she
     // answers with the result in hand. Bounded, because each look is another
     // round trip and another slice of the context.
-    for _ in 0..=nerea_core::tools::MAX_CALLS_PER_MESSAGE {
+    for _ in 0..=nerea_core::tools::MAX_ROUNDS {
         let streamed = match stream_reply(&app, state.inner(), &provider, &request, &mut reply).await
         {
             Ok(streamed) => streamed,
@@ -720,13 +720,19 @@ pub async fn send_message(
         };
 
         cancelled = streamed.cancelled;
-        let Some(call) = streamed.call.filter(|_| !cancelled) else {
+        if cancelled || streamed.calls.is_empty() {
             break;
-        };
+        }
 
-        let _ = app.emit(TOOL_EVENT, ToolNote { text: nerea_core::tools::describe(&call) });
-        let outcome = nerea_core::tools::run(&call);
-        state.push_tool_exchange(&call.raw, &outcome.observation).await;
+        let mut calls = Vec::new();
+        let mut results = Vec::new();
+        for call in streamed.calls.into_iter().take(nerea_core::tools::MAX_CALLS_PER_ROUND) {
+            let _ = app.emit(TOOL_EVENT, ToolNote { text: nerea_core::tools::describe(&call) });
+            let outcome = nerea_core::tools::run(&call);
+            results.push(outcome.observation);
+            calls.push(call);
+        }
+        state.push_tool_round(calls, results).await;
 
         // Her next round is a new paragraph, not a continuation of the line she
         // said before looking.
@@ -786,21 +792,15 @@ pub async fn send_message(
 }
 
 struct Streamed {
-    call: Option<nerea_core::tools::ToolCall>,
+    calls: Vec<nerea_core::ToolCall>,
     cancelled: bool,
 }
 
-/// What opens a tool block. Only the language tag says it is one; a plain
-/// ```rust block is just code she is writing.
-const FENCE_TAG: &str = "nerea-tool";
-
-/// One model turn, holding back exactly the characters that could open a tool
-/// block.
+/// One model turn: her words as they are written, and the calls she asked for.
 ///
-/// A reply streams as it is written — but a fence has to be decided before it
-/// is shown, because the block must never reach the chat. So the last two
-/// backticks are held back, and once the tag is readable the whole block is
-/// buffered until it closes. Her prose, before or without a block, still flows.
+/// Streaming and tools coexist without a protocol in the prompt because the API
+/// reports the calls in their own field. Nothing has to be parsed out of prose,
+/// and nothing can be half-said.
 async fn stream_reply(
     app: &AppHandle,
     state: &AppState,
@@ -815,12 +815,9 @@ async fn stream_reply(
 
     emit_state(app, "thinking");
 
-    // Prose not yet shown; when a block opens, it holds the block instead.
-    let mut pending = String::new();
-    let mut in_block = false;
     let mut talking = false;
     let mut cancelled = false;
-    let mut call = None;
+    let mut calls = Vec::new();
 
     while let Some(item) = stream.next().await {
         if state.take_cancel() {
@@ -828,110 +825,17 @@ async fn stream_reply(
             break;
         }
 
-        let delta = item.map_err(|err| err.to_string())?;
-        if delta.is_empty() {
-            continue;
+        let item = item.map_err(|err| err.to_string())?;
+        if !item.content.is_empty() {
+            show(app, reply, &item.content, &mut talking);
         }
-
-        pending.push_str(&delta);
-
-        if in_block {
-            if let Some(found) = nerea_core::tools::parse(&pending) {
-                call = Some(found);
-                break;
-            }
-            if pending.len() > 64 * 1024 {
-                // Too long to be a tool call: it was her writing a block.
-                in_block = false;
-                let text = std::mem::take(&mut pending);
-                show(app, reply, &text, &mut talking);
-            }
-            continue;
-        }
-
-        match fence_start(&pending) {
-            FenceStart::Block(at) => {
-                let prose = pending[..at].trim_end().to_owned();
-                let block = pending[at..].to_owned();
-                pending = block;
-                if !prose.is_empty() {
-                    show(app, reply, &prose, &mut talking);
-                }
-                in_block = true;
-                if let Some(found) = nerea_core::tools::parse(&pending) {
-                    call = Some(found);
-                    break;
-                }
-            }
-            // A fence that may still become a tool block: wait for its tag.
-            FenceStart::Undecided(at) => {
-                let ready = pending[..at].to_owned();
-                let held = pending[at..].to_owned();
-                pending = held;
-                if !ready.is_empty() {
-                    show(app, reply, &ready, &mut talking);
-                }
-            }
-            FenceStart::None => {
-                let held = trailing_backticks(&pending);
-                let cut = pending.len() - held;
-                if cut > 0 {
-                    let ready = pending[..cut].to_owned();
-                    pending = pending[cut..].to_owned();
-                    show(app, reply, &ready, &mut talking);
-                }
-            }
-        }
+        calls.extend(item.tool_calls);
     }
 
-    // Whatever was held: a block that never became a call is her own text.
-    if call.is_none() && !cancelled && !pending.is_empty() {
-        let text = std::mem::take(&mut pending);
-        show(app, reply, &text, &mut talking);
-    }
-
-    Ok(Streamed { call, cancelled })
-}
-
-enum FenceStart {
-    /// A tool block starts here.
-    Block(usize),
-    /// A fence we cannot name yet; hold it until the tag arrives.
-    Undecided(usize),
-    None,
-}
-
-/// Where the last fence in the buffer starts, and whether it is a tool block.
-fn fence_start(text: &str) -> FenceStart {
-    let Some(at) = text.rfind("```") else {
-        return FenceStart::None;
-    };
-
-    let after = text[at + 3..].trim_start();
-    if after.starts_with(FENCE_TAG) {
-        return FenceStart::Block(at);
-    }
-    if FENCE_TAG.starts_with(after) {
-        return FenceStart::Undecided(at);
-    }
-
-    FenceStart::None
-}
-
-/// How many trailing backticks could still become a fence.
-fn trailing_backticks(text: &str) -> usize {
-    let bytes = text.as_bytes();
-    let mut held = 0;
-
-    for len in 1..=3.min(bytes.len()) {
-        if "```".as_bytes().starts_with(&bytes[bytes.len() - len..]) {
-            held = len;
-        } else {
-            break;
-        }
-    }
-
-    held
+    Ok(Streamed {
+        calls: if cancelled { Vec::new() } else { calls },
+        cancelled,
+    })
 }
 
 fn show(app: &AppHandle, reply: &mut String, text: &str, talking: &mut bool) {
@@ -944,38 +848,4 @@ fn show(app: &AppHandle, reply: &mut String, text: &str, talking: &mut bool) {
     }
     reply.push_str(text);
     let _ = app.emit(DELTA_EVENT, Delta { text: text.to_owned() });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_fence_is_only_a_tool_block_when_its_tag_says_so() {
-        assert!(matches!(fence_start("```nerea-tool\n{}"), FenceStart::Block(0)));
-        assert!(matches!(fence_start("```"), FenceStart::Undecided(0)));
-        assert!(matches!(fence_start("```   "), FenceStart::Undecided(0)));
-        // A fence with a different tag is just a code block she is writing.
-        assert!(matches!(fence_start("```\n{}"), FenceStart::None));
-        assert!(matches!(fence_start("```ner"), FenceStart::Undecided(0)));
-        assert!(matches!(fence_start("```rust\nfn main() {}"), FenceStart::None));
-        assert!(matches!(fence_start("sin bloques"), FenceStart::None));
-    }
-
-    #[test]
-    fn the_block_may_arrive_after_a_sentence() {
-        let prose = "Sí, tengo algo en mente.\n\n```nerea-tool\n{\"tool\":\"list_dir\"}";
-        match fence_start(prose) {
-            FenceStart::Block(at) => assert_eq!(&prose[..at], "Sí, tengo algo en mente.\n\n"),
-            _ => panic!("the block has to be found after her prose"),
-        }
-    }
-
-    #[test]
-    fn a_single_backtick_is_held_until_it_is_clear() {
-        assert_eq!(trailing_backticks("texto `"), 1);
-        assert_eq!(trailing_backticks("texto ``"), 2);
-        assert_eq!(trailing_backticks("texto ```"), 3);
-        assert_eq!(trailing_backticks("texto"), 0);
-    }
 }

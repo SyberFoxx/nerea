@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -5,10 +6,14 @@ use bytes::Bytes;
 use futures::{Stream, StreamExt, stream};
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use reqwest::header::HeaderName;
 
-use super::{AiProvider, ChatMessage, ChatRequest, ChatResponse, ChatStream, Usage};
+use super::{
+    AiProvider, ChatMessage, ChatRequest, ChatResponse, ChatStream, StreamItem, ToolCall, ToolSpec,
+    Usage,
+};
 use crate::error::ProviderError;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -57,10 +62,7 @@ impl OpenAiCompatProvider {
     }
 
     fn request_builder(&self, session_id: &str) -> reqwest::RequestBuilder {
-        let builder = self
-            .client
-            .post(self.endpoint())
-            .bearer_auth(&self.api_key);
+        let builder = self.client.post(self.endpoint()).bearer_auth(&self.api_key);
 
         match &self.session_header {
             Some(header) => builder.header(header, session_id),
@@ -76,8 +78,86 @@ impl OpenAiCompatProvider {
 #[derive(Serialize)]
 struct ChatBody<'a> {
     model: &'a str,
-    messages: &'a [ChatMessage],
+    messages: Vec<WireMessage<'a>>,
     stream: bool,
+    #[serde(skip_serializing_if = "<[WireTool]>::is_empty")]
+    tools: Vec<WireTool<'a>>,
+}
+
+#[derive(Serialize)]
+struct WireMessage<'a> {
+    role: &'a str,
+    content: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_calls: Option<Vec<WireCall<'a>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_call_id: Option<&'a str>,
+}
+
+#[derive(Serialize)]
+struct WireCall<'a> {
+    id: &'a str,
+    #[serde(rename = "type")]
+    kind: &'static str,
+    function: WireFunction<'a>,
+}
+
+#[derive(Serialize)]
+struct WireFunction<'a> {
+    name: &'a str,
+    arguments: &'a str,
+}
+
+#[derive(Serialize)]
+struct WireTool<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    function: WireToolFunction<'a>,
+}
+
+#[derive(Serialize)]
+struct WireToolFunction<'a> {
+    name: &'a str,
+    description: &'a str,
+    parameters: &'a Value,
+}
+
+fn wire_messages(messages: &[ChatMessage]) -> Vec<WireMessage<'_>> {
+    messages
+        .iter()
+        .map(|message| WireMessage {
+            role: message.role.as_str(),
+            content: message.content.as_str(),
+            tool_calls: message.tool_calls.as_ref().map(|calls| {
+                calls
+                    .iter()
+                    .map(|call| WireCall {
+                        id: call.id.as_str(),
+                        kind: "function",
+                        function: WireFunction {
+                            name: call.name.as_str(),
+                            arguments: call.arguments.as_str(),
+                        },
+                    })
+                    .collect()
+            }),
+            tool_call_id: message.tool_call_id.as_deref(),
+        })
+        .collect()
+}
+
+fn wire_tools(tools: &[ToolSpec]) -> Vec<WireTool<'_>> {
+    tools
+        .iter()
+        .map(|tool| WireTool {
+            kind: "function",
+            function: WireToolFunction {
+                name: tool.name.as_str(),
+                description: tool.description.as_str(),
+                parameters: &tool.parameters,
+            },
+        })
+        .collect()
 }
 
 // ---------- wire types: private, never escape this module ----------
@@ -102,6 +182,24 @@ struct CompletionChoice {
 struct ResponseMessage {
     #[serde(default)]
     content: Option<String>,
+    #[serde(default)]
+    tool_calls: Vec<WireCallIn>,
+}
+
+#[derive(Deserialize)]
+struct WireCallIn {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    function: Option<WireFunctionIn>,
+}
+
+#[derive(Deserialize)]
+struct WireFunctionIn {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    arguments: String,
 }
 
 #[derive(Deserialize)]
@@ -119,6 +217,26 @@ struct StreamChoice {
 struct StreamDelta {
     #[serde(default)]
     content: Option<String>,
+    #[serde(default)]
+    tool_calls: Vec<StreamCall>,
+}
+
+#[derive(Deserialize)]
+struct StreamCall {
+    #[serde(default)]
+    index: usize,
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    function: Option<StreamCallFunction>,
+}
+
+#[derive(Deserialize)]
+struct StreamCallFunction {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    arguments: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -161,8 +279,9 @@ impl AiProvider for OpenAiCompatProvider {
     async fn chat_completion(&self, request: &ChatRequest) -> Result<ChatResponse, ProviderError> {
         let body = ChatBody {
             model: &self.model,
-            messages: &request.messages,
+            messages: wire_messages(&request.messages),
             stream: false,
+            tools: wire_tools(&request.tools),
         };
 
         let response = self
@@ -185,10 +304,11 @@ impl AiProvider for OpenAiCompatProvider {
             .next()
             .ok_or_else(|| ProviderError::Protocol("response contained no choices".into()))?;
         let CompletionChoice { message, finish_reason } = choice;
+        let message = message.unwrap_or(ResponseMessage { content: None, tool_calls: Vec::new() });
 
         Ok(ChatResponse {
             provider: self.id.clone(),
-            content: message.and_then(|msg| msg.content).unwrap_or_default(),
+            content: message.content.unwrap_or_default(),
             model: if completion.model.is_empty() {
                 self.model.clone()
             } else {
@@ -196,6 +316,7 @@ impl AiProvider for OpenAiCompatProvider {
             },
             finish_reason,
             usage: completion.usage,
+            tool_calls: message.tool_calls.into_iter().map(into_call).collect(),
         })
     }
 
@@ -205,8 +326,9 @@ impl AiProvider for OpenAiCompatProvider {
     ) -> Result<ChatStream, ProviderError> {
         let body = ChatBody {
             model: &self.model,
-            messages: &request.messages,
+            messages: wire_messages(&request.messages),
             stream: true,
+            tools: wire_tools(&request.tools),
         };
 
         // No total timeout here: an SSE body can legitimately stay open for minutes.
@@ -226,62 +348,173 @@ impl AiProvider for OpenAiCompatProvider {
     }
 }
 
+fn into_call(call: WireCallIn) -> ToolCall {
+    let function = call.function.unwrap_or(WireFunctionIn { name: String::new(), arguments: String::new() });
+    ToolCall { id: call.id, name: function.name, arguments: function.arguments }
+}
+
+/// A call the stream is still assembling: the name may arrive in one chunk and
+/// the JSON arguments in twenty.
+#[derive(Default)]
+struct PartialCall {
+    id: String,
+    name: String,
+    arguments: String,
+}
+
+impl PartialCall {
+    fn into_call(self) -> ToolCall {
+        ToolCall { id: self.id, name: self.name, arguments: self.arguments }
+    }
+}
+
+struct StreamState<S> {
+    body: std::pin::Pin<Box<S>>,
+    buffer: Vec<u8>,
+    /// The body is over; only the tail is left to flush.
+    exhausted: bool,
+    /// `[DONE]` was seen: nothing more will arrive, ever.
+    closed: bool,
+    /// The calls were already handed to the caller.
+    emitted: bool,
+    calls: BTreeMap<usize, PartialCall>,
+}
+
+impl<S> StreamState<S> {
+    fn merge(&mut self, calls: Vec<StreamCall>) {
+        for call in calls {
+            let partial = self.calls.entry(call.index).or_default();
+            if let Some(id) = call.id {
+                partial.id = id;
+            }
+            if let Some(function) = call.function {
+                if let Some(name) = function.name {
+                    partial.name = name;
+                }
+                if let Some(arguments) = function.arguments {
+                    partial.arguments.push_str(&arguments);
+                }
+            }
+        }
+    }
+
+    /// The calls, once, as the last item of the stream.
+    fn finish(
+        mut self,
+    ) -> Option<(Result<StreamItem, ProviderError>, Self)> {
+        if self.emitted || self.calls.is_empty() {
+            return None;
+        }
+        self.emitted = true;
+        let calls = std::mem::take(&mut self.calls)
+            .into_values()
+            .map(PartialCall::into_call)
+            .collect();
+        Some((Ok(StreamItem::calls(calls)), self))
+    }
+}
+
 fn parse_sse<S>(body: S) -> ChatStream
 where
     S: Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
 {
-    let body = Box::pin(body);
-    Box::pin(stream::unfold(
-        (body, Vec::new(), false),
-        |(mut body, mut buffer, mut exhausted)| async move {
-            loop {
-                if let Some((end, separator)) = event_boundary(&buffer) {
-                    let event = String::from_utf8_lossy(&buffer[..end]).into_owned();
-                    buffer.drain(..end + separator);
+    let state = StreamState {
+        body: Box::pin(body),
+        buffer: Vec::new(),
+        exhausted: false,
+        closed: false,
+        emitted: false,
+        calls: BTreeMap::new(),
+    };
 
-                    match classify(&event) {
-                        SseEvent::Done => return None,
-                        SseEvent::Ignore => continue,
-                        SseEvent::Delta(item) => return Some((item, (body, buffer, exhausted))),
-                    }
-                }
+    Box::pin(stream::unfold(state, |mut state| async move {
+        loop {
+            if state.closed {
+                return state.finish();
+            }
 
-                if exhausted {
-                    // Flush a final event that arrived without its blank line.
-                    if buffer.is_empty() {
-                        return None;
-                    }
-                    let event = String::from_utf8_lossy(&buffer).into_owned();
-                    buffer.clear();
-                    return match classify(&event) {
-                        SseEvent::Delta(item) => Some((item, (body, buffer, exhausted))),
-                        SseEvent::Done | SseEvent::Ignore => None,
-                    };
-                }
+            if let Some((end, separator)) = event_boundary(&state.buffer) {
+                let event = String::from_utf8_lossy(&state.buffer[..end]).into_owned();
+                state.buffer.drain(..end + separator);
 
-                match body.as_mut().next().await {
-                    Some(Ok(chunk)) => buffer.extend_from_slice(&chunk),
-                    Some(Err(err)) => {
-                        return Some((Err(ProviderError::Network(err)), (body, buffer, exhausted)));
+                match classify(&event) {
+                    SseEvent::Done => {
+                        state.closed = true;
+                        return state.finish();
                     }
-                    None => exhausted = true,
+                    SseEvent::Ignore => continue,
+                    SseEvent::Chunk(chunk) => {
+                        state.merge(chunk.calls);
+                        if !chunk.content.is_empty() {
+                            return Some((Ok(StreamItem::text(chunk.content)), state));
+                        }
+                        continue;
+                    }
                 }
             }
-        },
-    ))
+
+            if state.exhausted {
+                // Flush a final event that arrived without its blank line.
+                if state.buffer.is_empty() {
+                    state.closed = true;
+                    return state.finish();
+                }
+                let event = String::from_utf8_lossy(&state.buffer).into_owned();
+                state.buffer.clear();
+                match classify(&event) {
+                    SseEvent::Chunk(chunk) => {
+                        state.merge(chunk.calls);
+                        if !chunk.content.is_empty() {
+                            return Some((Ok(StreamItem::text(chunk.content)), state));
+                        }
+                        continue;
+                    }
+                    SseEvent::Done => {
+                        state.closed = true;
+                        return state.finish();
+                    }
+                    SseEvent::Ignore => {
+                        state.closed = true;
+                        return state.finish();
+                    }
+                }
+            }
+
+            match state.body.as_mut().next().await {
+                Some(Ok(chunk)) => state.buffer.extend_from_slice(&chunk),
+                Some(Err(err)) => {
+                    return Some((Err(ProviderError::Network(err)), state));
+                }
+                None => state.exhausted = true,
+            }
+        }
+    }))
+}
+
+struct Chunk {
+    content: String,
+    calls: Vec<StreamCall>,
 }
 
 enum SseEvent {
-    Delta(Result<String, ProviderError>),
+    Chunk(Chunk),
     Done,
     Ignore,
 }
 
 fn classify(event: &str) -> SseEvent {
-    match sse_data(event) {
-        None => SseEvent::Ignore,
-        Some(data) if data.trim() == "[DONE]" => SseEvent::Done,
-        Some(data) => SseEvent::Delta(decode_delta(&data)),
+    let Some(data) = sse_data(event) else {
+        return SseEvent::Ignore;
+    };
+    if data.trim() == "[DONE]" {
+        return SseEvent::Done;
+    }
+
+    // A gateway may send keep-alives the spec does not describe; a chunk we
+    // cannot read is skipped, never fatal.
+    match decode_chunk(&data) {
+        Ok(chunk) => SseEvent::Chunk(chunk),
+        Err(_) => SseEvent::Ignore,
     }
 }
 
@@ -316,15 +549,14 @@ fn sse_data(block: &str) -> Option<String> {
     (!data.is_empty()).then_some(data)
 }
 
-/// Returns an empty string for role-only chunks; callers filter those out.
-fn decode_delta(data: &str) -> Result<String, ProviderError> {
+fn decode_chunk(data: &str) -> Result<Chunk, ProviderError> {
     let chunk: StreamChunk = serde_json::from_str(data)?;
-    Ok(chunk
-        .choices
-        .first()
-        .and_then(|choice| choice.delta.as_ref())
-        .and_then(|delta| delta.content.clone())
-        .unwrap_or_default())
+    let delta = chunk.choices.into_iter().next().and_then(|choice| choice.delta);
+
+    Ok(match delta {
+        Some(delta) => Chunk { content: delta.content.unwrap_or_default(), calls: delta.tool_calls },
+        None => Chunk { content: String::new(), calls: Vec::new() },
+    })
 }
 
 #[cfg(test)]
@@ -358,10 +590,7 @@ mod tests {
     }
 
     fn request() -> ChatRequest {
-        ChatRequest {
-            messages: vec![ChatMessage::user("hi")],
-            session_id: "test-session".to_owned(),
-        }
+        ChatRequest::new(vec![ChatMessage::user("hi")], "test-session")
     }
 
     fn provider(base_url: String) -> OpenAiCompatProvider {
@@ -382,6 +611,21 @@ mod tests {
         assert_eq!(response.model, "mock-model-2026");
         assert_eq!(response.finish_reason.as_deref(), Some("stop"));
         assert_eq!(response.usage.map(|usage| usage.total_tokens), Some(5));
+        assert!(response.tool_calls.is_empty());
+    }
+
+    #[tokio::test]
+    async fn chat_completion_returns_the_tool_calls_it_asked_for() {
+        let body = r#"{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"/tmp/x\"}"}}]},"finish_reason":"tool_calls"}]}"#;
+        let url = spawn_mock("application/json", vec![body.to_owned()]).await;
+
+        let response = provider(url).chat_completion(&request()).await.expect("call");
+
+        assert_eq!(response.tool_calls.len(), 1);
+        assert_eq!(response.tool_calls[0].name, "read_file");
+        assert_eq!(response.tool_calls[0].id, "call_1");
+        assert_eq!(response.tool_calls[0].arguments, r#"{"path":"/tmp/x"}"#);
+        assert_eq!(response.finish_reason.as_deref(), Some("tool_calls"));
     }
 
     #[tokio::test]
@@ -407,9 +651,99 @@ mod tests {
 
         let mut collected = String::new();
         while let Some(item) = stream.next().await {
-            collected.push_str(&item.expect("chunk"));
+            let item = item.expect("chunk");
+            collected.push_str(&item.content);
         }
         assert_eq!(collected, "Hello, world");
+    }
+
+    /// The arguments of a call arrive one fragment at a time; the item that
+    /// comes out has to hold the whole JSON.
+    #[tokio::test]
+    async fn stream_assembles_a_tool_call_split_across_chunks() {
+        let body = concat!(
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_9\",\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"arguments\":\"\"}}]}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"path\\\":\"}}]}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\"/tmp/a.txt\\\"}\"}}]}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n",
+            "data: [DONE]\n\n",
+        );
+        let url = spawn_mock("text/event-stream", vec![body.to_owned()]).await;
+
+        let mut stream = provider(url)
+            .stream_chat_completion(&request())
+            .await
+            .expect("stream");
+
+        let mut calls = Vec::new();
+        while let Some(item) = stream.next().await {
+            let item = item.expect("chunk");
+            calls.extend(item.tool_calls);
+        }
+
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].id, "call_9");
+        assert_eq!(calls[0].name, "read_file");
+        assert_eq!(calls[0].arguments, r#"{"path":"/tmp/a.txt"}"#);
+    }
+
+    #[tokio::test]
+    async fn a_stream_of_plain_text_ends_without_calls() {
+        let body = concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"listo\"}}]}\n\n",
+            "data: [DONE]\n\n",
+        );
+        let url = spawn_mock("text/event-stream", vec![body.to_owned()]).await;
+
+        let mut stream = provider(url)
+            .stream_chat_completion(&request())
+            .await
+            .expect("stream");
+
+        let mut text = String::new();
+        let mut calls = 0;
+        while let Some(item) = stream.next().await {
+            let item = item.expect("chunk");
+            text.push_str(&item.content);
+            calls += item.tool_calls.len();
+        }
+
+        assert_eq!(text, "listo");
+        assert_eq!(calls, 0);
+    }
+
+    #[test]
+    fn tools_travel_in_the_shape_the_api_expects() {
+        let tools = vec![ToolSpec {
+            name: "read_file".to_owned(),
+            description: "Read a file".to_owned(),
+            parameters: serde_json::json!({"type": "object"}),
+        }];
+        let wire = serde_json::to_value(wire_tools(&tools)).expect("serialize");
+
+        assert_eq!(wire[0]["type"], "function");
+        assert_eq!(wire[0]["function"]["name"], "read_file");
+        assert_eq!(wire[0]["function"]["parameters"]["type"], "object");
+    }
+
+    #[test]
+    fn a_tool_result_carries_the_call_it_answers() {
+        let messages = vec![
+            ChatMessage::assistant_tools(vec![ToolCall {
+                id: "call_1".to_owned(),
+                name: "read_file".to_owned(),
+                arguments: "{}".to_owned(),
+            }]),
+            ChatMessage::tool_result("call_1", "contenido"),
+        ];
+        let wire = serde_json::to_value(wire_messages(&messages)).expect("serialize");
+
+        assert_eq!(wire[0]["role"], "assistant");
+        assert_eq!(wire[0]["tool_calls"][0]["id"], "call_1");
+        assert_eq!(wire[0]["tool_calls"][0]["function"]["name"], "read_file");
+        assert_eq!(wire[1]["role"], "tool");
+        assert_eq!(wire[1]["tool_call_id"], "call_1");
+        assert_eq!(wire[1]["content"], "contenido");
     }
 
     #[test]
@@ -471,10 +805,7 @@ mod tests {
             .expect("valid header");
 
         let response = provider
-            .chat_completion(&ChatRequest {
-                messages: vec![ChatMessage::user("hi")],
-                session_id: "sess-42".to_owned(),
-            })
+            .chat_completion(&ChatRequest::new(vec![ChatMessage::user("hi")], "sess-42"))
             .await
             .expect("gateway accepted the request");
 
@@ -487,10 +818,7 @@ mod tests {
 
         // DeepSeek-style: no session header configured, so it must not be sent.
         let response = provider(url)
-            .chat_completion(&ChatRequest {
-                messages: vec![ChatMessage::user("hi")],
-                session_id: "sess-42".to_owned(),
-            })
+            .chat_completion(&ChatRequest::new(vec![ChatMessage::user("hi")], "sess-42"))
             .await
             .expect("request without session header");
 
@@ -513,28 +841,25 @@ mod tests {
         ))
     }
 
-    async fn drain_tokens(stream: ChatStream) -> Vec<String> {
+    async fn drain_content(stream: ChatStream) -> String {
         let mut stream = stream;
-        let mut tokens = Vec::new();
+        let mut text = String::new();
         while let Some(item) = stream.next().await {
-            tokens.push(item.expect("stream item"));
+            text.push_str(&item.expect("stream item").content);
         }
-        tokens
+        text
     }
 
     #[tokio::test]
     async fn sse_parses_crlf_event_boundaries() {
         let body: &'static [u8] = b"data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\r\n\r\ndata: [DONE]\r\n\r\n";
-        assert_eq!(drain_tokens(chunked(vec![body])).await, vec!["Hello".to_string()]);
+        assert_eq!(drain_content(chunked(vec![body])).await, "Hello");
     }
 
     #[tokio::test]
     async fn sse_flushes_final_event_without_blank_line() {
         let body: &'static [u8] = b"data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"world\"}}]}";
-        assert_eq!(
-            drain_tokens(chunked(vec![body])).await,
-            vec!["Hello".to_string(), "world".to_string()]
-        );
+        assert_eq!(drain_content(chunked(vec![body])).await, "Helloworld");
     }
 
     #[tokio::test]
@@ -543,9 +868,6 @@ mod tests {
             b"data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\ndata: [DONE]\n\n";
         let cut = 47; // between the two '\n' of the first boundary
         let (first, second) = body.split_at(cut);
-        assert_eq!(
-            drain_tokens(chunked(vec![first, second])).await,
-            vec!["Hi".to_string()]
-        );
+        assert_eq!(drain_content(chunked(vec![first, second])).await, "Hi");
     }
 }

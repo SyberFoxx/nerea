@@ -47,9 +47,10 @@ Change her there, never in a provider or a command.
 ## What she can do with the machine
 
 Tier A only: **read**. `crates/nerea-core/src/tools` holds three tools — `read_file`,
-`list_dir`, `search` — and no shell, ever. The model asks with a fenced `nerea-tool` block
-(`tools::PROTOCOL`), the app runs it and hands back text; that keeps the provider contract
-untouched instead of depending on native function calling.
+`list_dir`, `search` — and no shell, ever. They are declared to the API as real tools
+(`tools::specs()`), so the model returns a `tool_calls` field instead of writing a format into
+its prose. That is deliberate: with a JSON block in the prompt a flash model would announce
+"voy a buscar" and stop, and the JSON could leak into the chat. The API cannot half-say a call.
 
 - Text and code are read as-is; PDF (text layer, no OCR), `.docx`, `.odt`, EPUB and HTML are
   unpacked first. Anything with a NUL byte is refused, not dumped.
@@ -60,8 +61,9 @@ untouched instead of depending on native function calling.
 - Every call appends one line to `~/.local/share/nerea/audit.jsonl`. Observations are `user`
   turns in the live conversation but never in the transcript, and they are clipped at ~12k
   characters: three looks per message, no more.
-- The chat never sees the block. `stream_reply` holds a reply while it opens with a fence and
-  releases it the moment the fence is not a tool call.
+- Round trip: the reply streams as text; when it ends with `tool_calls`, the app runs each one,
+  pushes the assistant turn plus one `role: "tool"` result per call, and asks again — at most
+  three rounds per message. A tool result is bound to its call id, never free-floating text.
 
 ## Invariants
 
@@ -101,8 +103,8 @@ untouched instead of depending on native function calling.
 - **`crate-type = ["staticlib", ...]` burns disk.** `staticlib` is only for Android/iOS and each
   rebuild leaves an 874 MB archive behind in a fresh `target/debug/build/<crate>/<hash>/out`,
   which Cargo never prunes: 29 rebuilds became 41 GB. Desktop builds need `["cdylib", "rlib"]`.
-- **The tool block must never be streamed.** A reply is forwarded on its first character, but one
-  that starts with a fence waits until the fence closes: that is what keeps JSON out of her mouth.
+- **A tool result must follow its call.** `Conversation::trimmed` drops leading `role: "tool"`
+  messages when the budget cuts through a round; without that, the API rejects the prompt.
 - **`git pull --ff-only` refuses on a diverged branch** — the updater reports it instead of merging.
 
 ## Where state lives
@@ -126,6 +128,7 @@ and `NEREA_TTS_PYTHON` tune the engine.
 |---|---|
 | `NEREA_DEBUG=1` | log window and run events |
 | `NEREA_OPEN_PANEL=1` | open the chat panel without a pointer |
+| `NEREA_ASK="…"` | send that message once, three seconds after boot, and log the whole path |
 | `NEREA_OPEN_HISTORY=1` | open the history window |
 | `NEREA_SUMMARIZE_NOW=1` | force one summary |
 | `NEREA_RECALL_QUERY="…"` | print what recall would send |

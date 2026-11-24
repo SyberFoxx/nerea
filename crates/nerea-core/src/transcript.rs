@@ -28,7 +28,12 @@ pub struct Entry {
 
 impl Entry {
     pub fn message(&self) -> ChatMessage {
-        ChatMessage { role: self.role, content: self.content.clone() }
+        ChatMessage {
+            role: self.role,
+            content: self.content.clone(),
+            tool_calls: None,
+            tool_call_id: None,
+        }
     }
 }
 

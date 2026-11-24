@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::ai::{ChatMessage, ChatRequest};
+use crate::ai::{ChatMessage, ChatRequest, Role, ToolCall};
 
 /// Rough characters-per-token ratio. Tokenizers differ per model, so this is a
 /// cheap lower bound with margin instead of a per-provider dependency.
@@ -43,6 +43,16 @@ impl Conversation {
         self.messages.push(message);
     }
 
+    /// The assistant turn that asked for tools; the results need it in front.
+    pub fn push_tool_round(&mut self, calls: Vec<ToolCall>) {
+        self.messages.push(ChatMessage::assistant_tools(calls));
+    }
+
+    /// What one tool answered, bound to the call it belongs to.
+    pub fn push_tool_result(&mut self, call_id: &str, content: impl Into<String>) {
+        self.messages.push(ChatMessage::tool_result(call_id, content));
+    }
+
     pub fn push_user(&mut self, content: impl Into<String>) {
         self.messages.push(ChatMessage::user(content));
     }
@@ -61,10 +71,7 @@ impl Conversation {
 
     /// The prompt to send: trimmed history plus this conversation's session id.
     pub fn request(&self) -> ChatRequest {
-        ChatRequest {
-            messages: self.trimmed(),
-            session_id: self.session_id.clone(),
-        }
+        ChatRequest::new(self.trimmed(), self.session_id.clone())
     }
 
     /// The prompt with the running summary and the recalled episodes folded
@@ -128,6 +135,12 @@ tuyos: no los repitas textualmente, usalos solo si ayudan.\n",
             kept.push(message.clone());
         }
         kept.reverse();
+
+        // A tool result without the call it answers is a protocol error. The cut
+        // happens at the oldest end, so only the head can be orphaned.
+        while kept.first().is_some_and(|message| message.role == Role::Tool) {
+            kept.remove(0);
+        }
 
         let mut prompt = Vec::with_capacity(kept.len() + 1);
         prompt.push(ChatMessage::system(self.system_prompt.clone()));

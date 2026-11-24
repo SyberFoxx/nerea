@@ -203,7 +203,7 @@ async fn send(
     let mut reply = String::new();
 
     while let Some(item) = tokens.next().await {
-        let delta = item?;
+        let delta = item?.content;
         if delta.is_empty() {
             continue;
         }

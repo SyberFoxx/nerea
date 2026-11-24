@@ -1,10 +1,10 @@
 //! Read-only access to the machine: what she may look at, and how.
 //!
 //! She never gets a shell. Every capability is a named function with a typed
-//! argument shape; the model asks for one with a fenced block, the app runs it
-//! and hands back the text. That keeps the provider contract untouched — no
-//! dependence on native function calling — and every call lands in the audit
-//! log.
+//! argument shape, declared to the model as a tool. The API says when she wants
+//! one — that is why there is no JSON protocol in the prompt: a model that says
+//! "voy a buscar" and stops cannot happen, because the call is a field, not a
+//! sentence. Every call lands in the audit log.
 
 pub mod audit;
 pub mod extract;
@@ -12,12 +12,16 @@ pub mod guard;
 
 use std::path::{Path, PathBuf};
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
-/// Each call is another round trip; three is enough to find something and read it.
-pub const MAX_CALLS_PER_MESSAGE: usize = 3;
+use crate::ai::{ToolCall, ToolSpec};
 
-const FENCE: &str = "```nerea-tool";
+/// She looks, reads what she found, and answers. Three rounds in total: the
+/// last one is the answer, so each round before it can ask for files.
+pub const MAX_ROUNDS: usize = 3;
+/// A model that dumps twenty calls in one breath is guessing, not reading.
+pub const MAX_CALLS_PER_ROUND: usize = 4;
+
 const DEFAULT_LINES: usize = 300;
 const MAX_LINES: usize = 1_200;
 /// Roughly 3k tokens: a fifth of the context budget, never more.
@@ -38,30 +42,73 @@ const SKIP_DIRS: &[&str] = &[
     "build",
 ];
 
-/// The block she is told to answer with when she needs to look something up.
-pub const PROTOCOL: &str = r#"
-
-## Leer la máquina
-Tenés herramientas de solo lectura sobre esta máquina. Cuando necesites una, respondé ÚNICAMENTE con un bloque así, sin nada más:
-
-```nerea-tool
-{"tool": "read_file", "args": {"path": "/ruta/al/archivo"}}
-```
-
-- `read_file {"path", "offset"?, "limit"?}` — texto, código, Markdown, JSON, PDF, Word (.docx), OpenDocument (.odt), EPUB y HTML. `offset` es la línea donde empezás (0 = principio) y `limit` cuántas líneas; sin `limit` devuelve 300.
-- `list_dir {"path"}` — qué hay en una carpeta.
-- `search {"query", "path", "limit"?}` — busca ese texto dentro de los archivos de una carpeta.
-
-Podés escribir una frase antes del bloque, para contarle qué vas a hacer, pero el bloque cierra tu mensaje: nunca escribas nada después. Si querés decir algo más, esperá el resultado.
-
-Reglas: no inventes rutas; si no sabés dónde está algo, usá `list_dir` o `search`. Aceptás `~` y rutas relativas. Cuando llega el resultado, contestás a Lioner con tu voz normal, sin el bloque, sin repetir el texto entero. Si lo que necesitás es más largo, pedí la parte siguiente con `offset`. Máximo 3 herramientas por mensaje."#;
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ToolCall {
-    pub name: String,
-    pub args: Value,
-    /// The block exactly as she wrote it, echoed back so the thread stays coherent.
-    pub raw: String,
+/// What she can do, in the shape the API expects.
+pub fn specs() -> Vec<ToolSpec> {
+    vec![
+        ToolSpec {
+            name: "read_file".to_owned(),
+            description: "Read a file and return its text: source code, Markdown, JSON, PDF, \
+Word (.docx), OpenDocument (.odt), EPUB or HTML. Long files come back in windows of lines; use \
+`offset` to continue where the previous answer stopped."
+                .to_owned(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Absolute path, or one starting with ~"
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "First line to return, 0-based. Default 0"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "How many lines to return. Default 300, max 1200"
+                    }
+                },
+                "required": ["path"]
+            }),
+        },
+        ToolSpec {
+            name: "list_dir".to_owned(),
+            description: "List a directory: name, kind and size of each entry.".to_owned(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Absolute path, or one starting with ~"
+                    }
+                },
+                "required": ["path"]
+            }),
+        },
+        ToolSpec {
+            name: "search".to_owned(),
+            description: "Search for a text inside the files of a directory, case-insensitively. \
+Returns path:line: text for each match."
+                .to_owned(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Literal text to look for"
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Directory to search in, or one starting with ~"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "How many matches to return. Default 40, max 100"
+                    }
+                },
+                "required": ["query", "path"]
+            }),
+        },
+    ]
 }
 
 #[derive(Debug, Clone)]
@@ -73,23 +120,16 @@ pub struct ToolOutcome {
     pub ok: bool,
 }
 
-/// Finds a tool block anywhere in a reply. `None` means it is ordinary prose.
-pub fn parse(reply: &str) -> Option<ToolCall> {
-    let start = reply.find(FENCE)?;
-    let body_start = start + FENCE.len();
-    let end = reply[body_start..].find("```")? + body_start;
-    let raw = reply[start..end + 3].to_owned();
-
-    let parsed: Value = serde_json::from_str(reply[body_start..end].trim()).ok()?;
-    let name = parsed.get("tool")?.as_str()?.to_owned();
-    let args = parsed.get("args").cloned().unwrap_or(Value::Null);
-
-    Some(ToolCall { name, args, raw })
+/// The arguments as the model wrote them, or a null value if they are not JSON.
+fn args_of(call: &ToolCall) -> Value {
+    serde_json::from_str(call.arguments.trim()).unwrap_or(Value::Null)
 }
 
 /// One line for her subtitle while the tool runs.
 pub fn describe(call: &ToolCall) -> String {
-    let text = |key: &str| call.args.get(key).and_then(Value::as_str).unwrap_or_default();
+    let args = args_of(call);
+    let text = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or_default();
+
     match call.name.as_str() {
         "read_file" => format!("leyendo {}", short_path(text("path"))),
         "list_dir" => format!("mirando {}", short_path(text("path"))),
@@ -100,12 +140,13 @@ pub fn describe(call: &ToolCall) -> String {
 
 /// Runs one call. Every failure becomes text she can read and explain.
 pub fn run(call: &ToolCall) -> ToolOutcome {
+    let args = args_of(call);
     let summary = describe(call);
 
     let result = match call.name.as_str() {
-        "read_file" => read_file(&call.args),
-        "list_dir" => list_dir(&call.args),
-        "search" => search(&call.args),
+        "read_file" => read_file(&args),
+        "list_dir" => list_dir(&args),
+        "search" => search(&args),
         other => Err(format!(
             "no tengo una herramienta llamada «{other}». Tengo read_file, list_dir y search"
         )),
@@ -116,10 +157,11 @@ pub fn run(call: &ToolCall) -> ToolOutcome {
         Err(err) => (false, format!("No pude: {err}")),
     };
 
-    audit::append(&call.name, &call.args, &summary, ok, observation.len());
+    audit::append(&call.name, &args, &summary, ok, observation.len());
 
     ToolOutcome { summary, observation, ok }
 }
+
 
 fn read_file(args: &Value) -> Result<String, String> {
     let path = guard::resolve(string_arg(args, "path")?)?;
@@ -344,30 +386,7 @@ mod tests {
     }
 
     fn call(name: &str, args: Value) -> ToolCall {
-        ToolCall { name: name.to_owned(), args, raw: String::new() }
-    }
-
-    #[test]
-    fn a_tool_block_is_recognized() {
-        let reply = "```nerea-tool\n{\"tool\": \"read_file\", \"args\": {\"path\": \"/tmp/x\"}}\n```";
-        let call = parse(reply).expect("call");
-        assert_eq!(call.name, "read_file");
-        assert_eq!(call.args["path"], "/tmp/x");
-    }
-
-    #[test]
-    fn an_ordinary_answer_is_not_a_tool_call() {
-        assert!(parse("Hola, mi dragón. ¿En qué andás?").is_none());
-    }
-
-    #[test]
-    fn a_code_fence_that_is_not_a_tool_is_ignored() {
-        assert!(parse("Mirá:\n```rust\nfn main() {}\n```").is_none());
-    }
-
-    #[test]
-    fn broken_json_is_not_a_crash() {
-        assert!(parse("```nerea-tool\n{ not json }\n```").is_none());
+        ToolCall { id: "call-test".to_owned(), name: name.to_owned(), arguments: args.to_string() }
     }
 
     #[test]

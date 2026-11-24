@@ -9,19 +9,17 @@ use nerea_core::{
     presets,
     recall::{age_label, Corpus, Hit},
     transcript::Transcript,
-    AiProvider, ChatMessage, ChatRequest, Config, Conversation, Entry, Role,
+    AiProvider, ChatMessage, ChatRequest, Config, Conversation, Entry, Role, ToolCall,
 };
 use serde::Serialize;
 use tokio::sync::Mutex;
 
 pub const SERVICE: &str = "nerea";
 
-/// Her self, plus what she can do with the machine.
-///
-/// The persona stays a character; the tool protocol is a capability, so it is
-/// composed here instead of being welded into her identity.
+/// Her self. What she can *do* is declared to the API as tools, not written
+/// into her identity: the model is told, it does not have to remember a format.
 fn system_prompt() -> String {
-    format!("{}{}", nerea_core::persona::system_prompt(), nerea_core::tools::PROTOCOL)
+    nerea_core::persona::system_prompt()
 }
 
 /// Resumes from the summary instead of re-sending the whole transcript.
@@ -208,7 +206,10 @@ impl AppState {
         let (rendered, recalled, oldest_days) = render_recall(&session.recall, text);
 
         let summary = session.memory.text.clone();
-        let request = session.conversation.request_with_context(Some(&summary), rendered.as_deref());
+        let request = session
+            .conversation
+            .request_with_context(Some(&summary), rendered.as_deref())
+            .with_tools(nerea_core::tools::specs());
 
         Turn { request, recalled, oldest_days }
     }
@@ -216,15 +217,21 @@ impl AppState {
     /// The prompt after a tool exchange has been folded into the live thread.
     pub async fn tool_request(&self) -> ChatRequest {
         let session = self.session.lock().await;
-        session.conversation.request_with_context(Some(&session.memory.text), None)
+        session
+            .conversation
+            .request_with_context(Some(&session.memory.text), None)
+            .with_tools(nerea_core::tools::specs())
     }
 
     /// Keeps what she read in the live thread, never in the transcript: her
     /// memory is a conversation, not a filesystem.
-    pub async fn push_tool_exchange(&self, call: &str, observation: &str) {
+    pub async fn push_tool_round(&self, calls: Vec<ToolCall>, results: Vec<String>) {
         let mut session = self.session.lock().await;
-        session.conversation.push_assistant(call.to_owned());
-        session.conversation.push_user(observation.to_owned());
+        let ids: Vec<String> = calls.iter().map(|call| call.id.clone()).collect();
+        session.conversation.push_tool_round(calls);
+        for (id, result) in ids.iter().zip(results) {
+            session.conversation.push_tool_result(id, result);
+        }
     }
 
     /// Returns the new turn count. An empty reply (cancelled or failed early) is
@@ -429,13 +436,13 @@ fn summary_request(previous: &str, chunk: &[Entry]) -> ChatRequest {
 
     let previous = if previous.trim().is_empty() { "(todavía no hay memoria)" } else { previous.trim() };
 
-    ChatRequest {
-        messages: vec![
+    ChatRequest::new(
+        vec![
             ChatMessage::system(SUMMARY_PROMPT),
             ChatMessage::user(format!("Memoria previa:\n{previous}\n\nTurnos nuevos:\n{rendered}")),
         ],
-        session_id: "memory".to_owned(),
-    }
+        "memory",
+    )
 }
 
 /// Keeps warnings short and free of duplicates.
