@@ -80,7 +80,6 @@ fingerprint. `remember` is the exception (the request is the consent).
 | D4 | CI builds artifacts but runs no tests | a broken release can ship green | known |
 | D5 | recall is lexical only | a paraphrase does not find the old turn | known; cards (T8) cover the facts |
 | D6 | the desktop app has tools, the CLI has none | the headless harness cannot be used to test them | known |
-
 | D7 | restricting the tools makes this model write its DSML call syntax into the prose | an empty `tools` array and `tool_choice: "none"` both leak `<｜DSML｜ …>` into the chat | known; avoided by never restricting, worth a sanitizer if a provider changes |
 | D8 | she sometimes opens a turn in English before switching to Spanish | cosmetic, but it breaks the voice | known |
 
