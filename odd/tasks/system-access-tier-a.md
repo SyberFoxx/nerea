@@ -78,6 +78,23 @@ directory looked bigger than the space it really held. After one full debug buil
 3.3 GB (`target/debug/nerea-desktop` 333 MB, `build/` 3.0 GB in 4 dirs instead of 196), and the
 build takes 51 s from scratch.
 
+### L5 — the block leaked into the chat (0.6.1)
+
+The user pasted her own message: prose first ("Voy a empezar por el principio…"), then the
+fenced block. The gate only held a reply that *started* with a fence, so the first character of
+prose released the whole stream, JSON included.
+
+Fixed: `fence_start` finds the last fence anywhere in the buffer, `Undecided` holds it until the
+tag is readable, `trailing_backticks` holds at most two backticks so a fence split across chunks
+is still caught. Her prose is still streamed; the block never is. Three tests cover it.
+
+### L5b — she announces and does not act
+
+After the fix she still said "Voy a buscar «Nerea» en los dos documentos." and emitted no block:
+the audit log has no `search` for that turn. Allowing a sentence before the block made it easier
+for a flash model to treat the sentence as the whole message. Next step: native function calling
+if the provider exposes it, otherwise the block goes back to being the only content allowed.
+
 ### L4 — design decisions
 
 - No shell. Three named read-only tools with typed arguments; the model asks

@@ -52,6 +52,8 @@ Tenés herramientas de solo lectura sobre esta máquina. Cuando necesites una, r
 - `list_dir {"path"}` — qué hay en una carpeta.
 - `search {"query", "path", "limit"?}` — busca ese texto dentro de los archivos de una carpeta.
 
+Podés escribir una frase antes del bloque, para contarle qué vas a hacer, pero el bloque cierra tu mensaje: nunca escribas nada después. Si querés decir algo más, esperá el resultado.
+
 Reglas: no inventes rutas; si no sabés dónde está algo, usá `list_dir` o `search`. Aceptás `~` y rutas relativas. Cuando llega el resultado, contestás a Lioner con tu voz normal, sin el bloque, sin repetir el texto entero. Si lo que necesitás es más largo, pedí la parte siguiente con `offset`. Máximo 3 herramientas por mensaje."#;
 
 #[derive(Debug, Clone, PartialEq)]

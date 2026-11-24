@@ -320,7 +320,8 @@ cargo clippy --all-targets -- -D warnings
 | `0.5.6` | her bubble fits inside her own window, and the goodbye lands on quit |
 | `0.5.7` | she knows her own story: full name, family, sect, temper and her dragon |
 | `0.5.8` | the goodbye belongs to leaving, not to closing the chat |
-| **`0.6.0`** | she can read the machine: code, text, PDF, Word, ODT, EPUB — read-only, guarded, logged |
+| `0.6.0` | she can read the machine: code, text, PDF, Word, ODT, EPUB — read-only, guarded, logged |
+| **`0.6.1`** | the tool block is found anywhere in her answer, so it never leaks into the chat |
 
 PC control grows one tier at a time, and tier A is read-only on purpose: files, never a shell.
 She asks with a fenced block, the app runs one of three named tools, and every call is written to
