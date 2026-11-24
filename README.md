@@ -345,8 +345,9 @@ She asks with a fenced block, the app runs one of three named tools, and every c
 - **GTK refuses to resize a non-resizable window**, and the compositor needs that hint to keep her
   floating. The size therefore goes in as an identical minimum and maximum.
 - **No bundler.** Tauri serves `ui/` as static files; there is no node build step to keep green.
-- **Brand assets are generated.** `docs/brand/make_brand.py` builds the logo, banner, social card
-  and signature from her own art and system fonts, so they never drift from the character.
+- **Brand assets are generated, except the banner.** `docs/brand/make_brand.py` builds the logo,
+  social card and signature from her own art and system fonts; `banner.png` is hand art and only
+  `--banner` replaces it, so regenerating the brand never eats it.
 - **Packages are built where the oldest supported glibc lives.** A rolling host produces binaries
   nobody on Ubuntu LTS can run; the release workflow builds on `ubuntu-22.04` for that reason.
 

@@ -34,7 +34,7 @@ tools/voice/.venv/bin/python voice/render_bank.py  # re-render bank lines (resum
 
 npx @tauri-apps/cli@^2 build --bundles appimage
 packaging/package.sh                          # .deb + tarball, same script CI runs
-python3 docs/brand/make_brand.py              # regenerate every brand asset
+python3 docs/brand/make_brand.py              # logo, social card, signature (banner is hand art)
 ```
 
 ## Who she is

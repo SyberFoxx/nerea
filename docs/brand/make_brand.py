@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """Build the Nerea brand assets from her own artwork and system fonts.
 
-Reproducible on purpose: the logo, the README banner and the signature are
-generated, not hand-edited binaries. Run it after changing the artwork:
+Reproducible on purpose: the logo, the social card and the signature are
+generated, not hand-edited binaries. The README banner is the exception — it is
+hand art, kept in the repository as `banner.png`, and the script never replaces
+it by accident:
 
-    python3 docs/brand/make_brand.py
+    python3 docs/brand/make_brand.py            # logo, social card, signature
+    python3 docs/brand/make_brand.py --banner   # also rebuild the procedural banner
 """
 
 from __future__ import annotations
 
 import pathlib
+import sys
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -502,13 +506,20 @@ def main() -> None:
     logo.save(HERE / "logo.png")
     logo.resize((512, 512), Image.LANCZOS).save(HERE / "logo-512.png")
 
-    build_banner().save(HERE / "banner.png")
+    # The banner is hand art (1440x720, the 2:1 GitHub ratio). Rebuilding the
+    # procedural one is a deliberate move, never a side effect of regenerating
+    # the rest of the brand.
+    if "--banner" in sys.argv:
+        build_banner().save(HERE / "banner.png")
+        print("banner.png       rebuilt from the procedural recipe (the hand art is gone)")
+
     build_social().save(HERE / "social.jpg", quality=92, subsampling=0, optimize=True, progressive=True)
     build_signature().save(HERE / "signature.png")
 
     for name in ("logo.png", "logo-512.png", "banner.png", "social.jpg", "signature.png"):
         path = HERE / name
-        print(f"{name:<16} {path.stat().st_size / 1024:7.0f} KB")
+        if path.exists():
+            print(f"{name:<16} {path.stat().st_size / 1024:7.0f} KB")
 
 
 if __name__ == "__main__":
