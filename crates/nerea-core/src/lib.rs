@@ -8,10 +8,12 @@ pub mod conversation;
 pub mod error;
 pub mod factory;
 pub mod memory;
+pub mod paths;
 pub mod persona;
 pub mod phrase;
 pub mod recall;
 pub mod secrets;
+pub mod tools;
 pub mod transcript;
 
 pub use ai::fallback::FallbackProvider;

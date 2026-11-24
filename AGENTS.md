@@ -9,7 +9,7 @@ Nerea: a desktop companion for Linux. A UI-agnostic Rust core, a Tauri 2 shell w
 transparent window, a cloned Japanese voice and a persistent conversation.
 
 ```
-crates/nerea-core     providers · secrets · config · conversation · transcript · memory · recall · persona · phrase bank
+crates/nerea-core     providers · secrets · config · conversation · transcript · memory · recall · persona · tools · phrase bank
 crates/nerea-cli      headless harness (clap, tokio)
 src-tauri             Tauri shell: commands, window placement, voice engine supervision, update
 ui                    plain HTML/CSS/JS, no bundler
@@ -43,6 +43,25 @@ python3 docs/brand/make_brand.py              # regenerate every brand asset
 the machine contract that keeps her useful. It travels with **every** request, so it has a size test:
 if the persona grows past its budget, the test fails instead of quietly costing tokens on every turn.
 Change her there, never in a provider or a command.
+
+## What she can do with the machine
+
+Tier A only: **read**. `crates/nerea-core/src/tools` holds three tools — `read_file`,
+`list_dir`, `search` — and no shell, ever. The model asks with a fenced `nerea-tool` block
+(`tools::PROTOCOL`), the app runs it and hands back text; that keeps the provider contract
+untouched instead of depending on native function calling.
+
+- Text and code are read as-is; PDF (text layer, no OCR), `.docx`, `.odt`, EPUB and HTML are
+  unpacked first. Anything with a NUL byte is refused, not dumped.
+- `tools::guard` resolves `~` and symlinks **before** applying the rules, so a link cannot walk
+  around them. `~/.ssh`, `~/.gnupg`, `~/.pki`, the browser profiles, her own data and config
+  dirs, `/etc/shadow`, `/proc`, `/sys` and credential-shaped names (`id_rsa`, `.env`, `*.pem`,
+  `*.key`) are never readable.
+- Every call appends one line to `~/.local/share/nerea/audit.jsonl`. Observations are `user`
+  turns in the live conversation but never in the transcript, and they are clipped at ~12k
+  characters: three looks per message, no more.
+- The chat never sees the block. `stream_reply` holds a reply while it opens with a fence and
+  releases it the moment the fence is not a tool call.
 
 ## Invariants
 
@@ -79,6 +98,11 @@ Change her there, never in a provider or a command.
   answers `400 not exists`.
 - **Never run two engines.** The app adopts an existing listener for that reason; two of them halve
   the speed.
+- **`crate-type = ["staticlib", ...]` burns disk.** `staticlib` is only for Android/iOS and each
+  rebuild leaves an 874 MB archive behind in a fresh `target/debug/build/<crate>/<hash>/out`,
+  which Cargo never prunes: 29 rebuilds became 41 GB. Desktop builds need `["cdylib", "rlib"]`.
+- **The tool block must never be streamed.** A reply is forwarded on its first character, but one
+  that starts with a fence waits until the fence closes: that is what keeps JSON out of her mouth.
 - **`git pull --ff-only` refuses on a diverged branch** — the updater reports it instead of merging.
 
 ## Where state lives
@@ -88,6 +112,7 @@ Change her there, never in a provider or a command.
 | `~/.config/nerea/config.toml` | provider, fallback, `[voice] speak` |
 | `~/.local/share/nerea/conversation.jsonl` | one JSON line per turn, the source of truth |
 | `~/.local/share/nerea/memory.json` | running summary + the timestamp it covers |
+| `~/.local/share/nerea/audit.jsonl` | one line per tool call: when, what, arguments, outcome |
 | `/tmp/nerea-tts.log` | engine output when the app starts it |
 | `$XDG_RUNTIME_DIR/nerea/line.wav` | the line being played |
 

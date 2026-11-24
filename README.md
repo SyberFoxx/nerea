@@ -298,7 +298,7 @@ cargo run -p nerea-cli -- config show|path|init
 cargo run -p nerea-desktop                       # the app
 NEREA_DEBUG=1 cargo run -p nerea-desktop         # log window and run events
 
-cargo test                                       # 74 tests, no network
+cargo test                                       # 111 tests, no network
 cargo clippy --all-targets -- -D warnings
 ```
 
@@ -312,10 +312,20 @@ cargo clippy --all-targets -- -D warnings
 | `0.3.0` | long-term memory: a running summary so the prompt stops degrading |
 | **`0.4.0`** | recall: the turns that matter come back when the message asks for them |
 | `0.5.0` | live voice for replies: faithful Japanese line, TTS, `talking` frame, subtitle |
-| `0.6.0` | PC control: files, windows, commands — each action behind an explicit confirmation |
+| `0.5.1` | voice is opt-in: it asks first, and says what it costs |
+| `0.5.2` | clicking her opens the chat without moving her |
+| `0.5.3` | nothing is drawn while the window changes size |
+| `0.5.4` | a roomier chat card, and a composer that stops clipping its own text |
+| `0.5.5` | the chat closes politely |
+| `0.5.6` | her bubble fits inside her own window, and the goodbye lands on quit |
+| `0.5.7` | she knows her own story: full name, family, sect, temper and her dragon |
+| `0.5.8` | the goodbye belongs to leaving, not to closing the chat |
+| **`0.6.0`** | she can read the machine: code, text, PDF, Word, ODT, EPUB — read-only, guarded, logged |
 
-PC control is a recorded requirement, not an implemented one. Anything that touches your machine
-will ask first, every time; that is the only way a companion with a shell is a good idea.
+PC control grows one tier at a time, and tier A is read-only on purpose: files, never a shell.
+She asks with a fenced block, the app runs one of three named tools, and every call is written to
+`~/.local/share/nerea/audit.jsonl`. The paths that hold credentials — `~/.ssh`, the keyring,
+`.env`, `*.pem` — are refused before she ever sees them, and a symlink cannot walk around that.
 
 ## Design decisions
 

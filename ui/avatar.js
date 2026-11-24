@@ -45,6 +45,7 @@ let frames = new Map();
 let turnFrame = "idle";
 let speakingTimer = null;
 let speaking = false;
+let toolNoteTimer = null;
 let idleTimer = null;
 let panelOpen = false;
 let busy = false;
@@ -100,10 +101,39 @@ function clearLog(message) {
 
 function endSpeech() {
   clearTimeout(speakingTimer);
+  clearTimeout(toolNoteTimer);
   speakingTimer = null;
+  toolNoteTimer = null;
   speaking = false;
   subtitle.hidden = true;
   show(turnFrame);
+}
+
+/**
+ * Says what she is reading, without speaking it.
+ *
+ * Reading a file takes a round trip, and a silent window looks broken. The note
+ * clears itself, and the real answer clears it sooner.
+ */
+function showToolNote(text) {
+  if (!text) return;
+
+  subtitle.textContent = text;
+  subtitle.hidden = false;
+
+  clearTimeout(toolNoteTimer);
+  toolNoteTimer = setTimeout(() => {
+    toolNoteTimer = null;
+    if (!speaking) subtitle.hidden = true;
+  }, 6000);
+}
+
+function clearToolNote() {
+  if (!toolNoteTimer) return;
+
+  clearTimeout(toolNoteTimer);
+  toolNoteTimer = null;
+  if (!speaking) subtitle.hidden = true;
 }
 
 function playLine(line) {
@@ -380,12 +410,15 @@ async function start() {
   });
 
   await tauri.event.listen("nerea://delta", (event) => {
+    clearToolNote();
     if (!streamingBubble) return;
     streamingBubble.textContent += event.payload.text;
     scrollToEnd();
   });
 
   await tauri.event.listen("nerea://say", (event) => playLine(event.payload));
+
+  await tauri.event.listen("nerea://tool", (event) => showToolNote(event.payload.text));
 
   await tauri.event.listen("nerea://recall", () => {
     addBubble("murmur", "Me acordé de algo que hablamos hace un tiempo…");

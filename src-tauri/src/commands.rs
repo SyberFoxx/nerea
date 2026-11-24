@@ -1,6 +1,6 @@
-use std::{path::PathBuf, process::Command};
+use std::{path::PathBuf, process::Command, sync::Arc};
 
-use nerea_core::PhraseBank;
+use nerea_core::{AiProvider, ChatRequest, PhraseBank};
 use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, LogicalSize, Manager};
@@ -658,6 +658,14 @@ pub fn cancel_stream(state: tauri::State<'_, AppState>) {
     state.cancel();
 }
 
+/// While she reads, the subtitle says what she is doing.
+const TOOL_EVENT: &str = "nerea://tool";
+
+#[derive(Debug, Clone, Serialize)]
+struct ToolNote {
+    text: String,
+}
+
 #[tauri::command]
 pub async fn send_message(
     app: AppHandle,
@@ -678,7 +686,7 @@ pub async fn send_message(
         }
     };
     let turn = state.begin_turn(&text).await;
-    let request = turn.request;
+    let mut request = turn.request;
 
     // Speaking is opt-in: it costs gigabytes, so it only happens after the user
     // answered the question, and the engine boots while the model is thinking.
@@ -693,46 +701,33 @@ pub async fn send_message(
         let _ = app.emit(RECALL_EVENT, turn.recalled);
     }
 
-    let mut stream = match provider.stream_chat_completion(&request).await {
-        Ok(stream) => stream,
-        Err(err) => {
-            emit_state(&app, "error");
-            speak(&app, &bank, "complain");
-            return Err(err.to_string());
-        }
-    };
-
-    emit_state(&app, "thinking");
-
     let mut reply = String::new();
     let mut cancelled = false;
-    let mut talking = false;
 
-    use futures::StreamExt;
-
-    while let Some(item) = stream.next().await {
-        if state.take_cancel() {
-            cancelled = true;
-            break;
-        }
-
-        match item {
-            Ok(delta) if delta.is_empty() => continue,
-            Ok(delta) => {
-                if !talking {
-                    talking = true;
-                    emit_state(&app, "talking");
-                }
-                reply.push_str(&delta);
-                let _ = app.emit(DELTA_EVENT, Delta { text: delta });
-            }
+    // Reading is a loop: she asks for a file, the app runs the tool, and she
+    // answers with the result in hand. Bounded, because each look is another
+    // round trip and another slice of the context.
+    for _ in 0..=nerea_core::tools::MAX_CALLS_PER_MESSAGE {
+        let streamed = match stream_reply(&app, state.inner(), &provider, &request, &mut reply).await
+        {
+            Ok(streamed) => streamed,
             Err(err) => {
                 state.finish_turn(&reply).await;
                 emit_state(&app, "error");
                 speak(&app, &bank, "complain");
-                return Err(err.to_string());
+                return Err(err);
             }
-        }
+        };
+
+        cancelled = streamed.cancelled;
+        let Some(call) = streamed.call.filter(|_| !cancelled) else {
+            break;
+        };
+
+        let _ = app.emit(TOOL_EVENT, ToolNote { text: nerea_core::tools::describe(&call) });
+        let outcome = nerea_core::tools::run(&call);
+        state.push_tool_exchange(&call.raw, &outcome.observation).await;
+        request = state.tool_request().await;
     }
 
     let turns = state.finish_turn(&reply).await;
@@ -780,4 +775,120 @@ pub async fn send_message(
         cancelled,
         turns,
     })
+}
+
+struct Streamed {
+    call: Option<nerea_core::tools::ToolCall>,
+    cancelled: bool,
+}
+
+/// One model turn, holding back just enough to tell a tool call from prose.
+///
+/// A reply is released on its first character, but anything that opens a fence
+/// waits until the fence says what it is: that is the whole difference between
+/// her reading a file and her reciting JSON at the user.
+async fn stream_reply(
+    app: &AppHandle,
+    state: &AppState,
+    provider: &Arc<dyn AiProvider>,
+    request: &ChatRequest,
+    reply: &mut String,
+) -> Result<Streamed, String> {
+    use futures::StreamExt;
+
+    let mut stream =
+        provider.stream_chat_completion(request).await.map_err(|err| err.to_string())?;
+
+    emit_state(app, "thinking");
+
+    let mut held = String::new();
+    let mut decided = false;
+    let mut call = None;
+    let mut talking = false;
+    let mut cancelled = false;
+
+    while let Some(item) = stream.next().await {
+        if state.take_cancel() {
+            cancelled = true;
+            break;
+        }
+
+        let delta = item.map_err(|err| err.to_string())?;
+        if delta.is_empty() {
+            continue;
+        }
+
+        if decided {
+            show(app, reply, &delta, &mut talking);
+            continue;
+        }
+
+        held.push_str(&delta);
+        match gate(&held) {
+            Gate::Hold => {}
+            Gate::Tool(found) => {
+                call = Some(found);
+                break;
+            }
+            Gate::Prose => {
+                decided = true;
+                let text = std::mem::take(&mut held);
+                show(app, reply, &text, &mut talking);
+            }
+        }
+    }
+
+    // A reply can end without closing anything: decide on what we have.
+    if call.is_none() && !cancelled && !held.is_empty() {
+        match gate(&held) {
+            Gate::Tool(found) => call = Some(found),
+            Gate::Hold | Gate::Prose => {
+                if !decided {
+                    let text = std::mem::take(&mut held);
+                    show(app, reply, &text, &mut talking);
+                }
+            }
+        }
+    }
+
+    Ok(Streamed { call, cancelled })
+}
+
+enum Gate {
+    Hold,
+    Prose,
+    Tool(nerea_core::tools::ToolCall),
+}
+
+/// Decides, from what arrived so far, whether this is a tool call or an answer.
+fn gate(held: &str) -> Gate {
+    if let Some(call) = nerea_core::tools::parse(held) {
+        return Gate::Tool(call);
+    }
+
+    let trimmed = held.trim_start();
+    if trimmed.is_empty() {
+        return Gate::Hold;
+    }
+    if !trimmed.starts_with("```") {
+        return Gate::Prose;
+    }
+    // A fence that closed without being a tool block was just code.
+    if held.len() > 64 * 1024 || trimmed.matches("```").count() >= 2 {
+        return Gate::Prose;
+    }
+
+    Gate::Hold
+}
+
+fn show(app: &AppHandle, reply: &mut String, text: &str, talking: &mut bool) {
+    if text.is_empty() {
+        return;
+    }
+    if !*talking {
+        *talking = true;
+        emit_state(app, "talking");
+    }
+    reply.push_str(text);
+    let _ = app.emit(DELTA_EVENT, Delta { text: text.to_owned() });
 }

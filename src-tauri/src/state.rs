@@ -16,6 +16,14 @@ use tokio::sync::Mutex;
 
 pub const SERVICE: &str = "nerea";
 
+/// Her self, plus what she can do with the machine.
+///
+/// The persona stays a character; the tool protocol is a capability, so it is
+/// composed here instead of being welded into her identity.
+fn system_prompt() -> String {
+    format!("{}{}", nerea_core::persona::system_prompt(), nerea_core::tools::PROTOCOL)
+}
+
 /// Resumes from the summary instead of re-sending the whole transcript.
 const SUMMARY_PROMPT: &str = "Sos la memoria de Nerea, una compañera de escritorio. Recibís la \
 memoria previa y un bloque de turnos nuevos. Devolvés la memoria actualizada, en español neutro, en \
@@ -123,7 +131,7 @@ impl AppState {
         let keep_from = restored.len().saturating_sub(RESTORED_MESSAGES);
         restored.drain(..keep_from);
 
-        let mut conversation = Conversation::new(nerea_core::persona::system_prompt(), CONTEXT_BUDGET_TOKENS);
+        let mut conversation = Conversation::new(system_prompt(), CONTEXT_BUDGET_TOKENS);
         for message in restored.iter().cloned() {
             conversation.push(message);
         }
@@ -205,6 +213,20 @@ impl AppState {
         Turn { request, recalled, oldest_days }
     }
 
+    /// The prompt after a tool exchange has been folded into the live thread.
+    pub async fn tool_request(&self) -> ChatRequest {
+        let session = self.session.lock().await;
+        session.conversation.request_with_context(Some(&session.memory.text), None)
+    }
+
+    /// Keeps what she read in the live thread, never in the transcript: her
+    /// memory is a conversation, not a filesystem.
+    pub async fn push_tool_exchange(&self, call: &str, observation: &str) {
+        let mut session = self.session.lock().await;
+        session.conversation.push_assistant(call.to_owned());
+        session.conversation.push_user(observation.to_owned());
+    }
+
     /// Returns the new turn count. An empty reply (cancelled or failed early) is
     /// not written into history.
     pub async fn finish_turn(&self, reply: &str) -> usize {
@@ -232,7 +254,7 @@ impl AppState {
 
     pub async fn reset(&self) {
         let mut session = self.session.lock().await;
-        session.conversation = Conversation::new(nerea_core::persona::system_prompt(), CONTEXT_BUDGET_TOKENS);
+        session.conversation = Conversation::new(system_prompt(), CONTEXT_BUDGET_TOKENS);
         session.memory = Memory::default();
         session.recall = RecallIndex::build(Vec::new());
         session.since_index = 0;
