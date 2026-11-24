@@ -109,14 +109,34 @@ top 3 only, above a floor, and a test with fixtures that must not be pulled.
    tests with three fixture cards. No behaviour change until the first card exists.
 2. **`remember` tool** (~80 lines): create/update, 2 KB cap, audit entry, never
    deletes. Verifiable end to end: he tells her a fact, restarts, she recalls it.
-3. **Automatic extraction** (optional, off by default): only if phases 1–2 prove
-   they earn their tokens.
+3. ~~Automatic extraction~~ — **shelved** by L6: cards are written only when the user
+   asks. Reopening it is a new decision, not a pending task.
 
 Acceptance for phase 1: asking about the novel pulls `lore_novela.md` and not
 `proyectos_actuales.md`; asking "hola" injects no card at all.
 
-### L6 — open decision
+### L6 — the decision, verbatim
 
-Does she write cards on her own initiative, or only when the user asks? Phase 2 is
-the cheap answer; phase 3 is the ambitious one. Everything else in this document
-is independent of that choice.
+> respondiendo tu pregunta, podemos poner solo cando se lo pida tipo "recuerda esto muy bien" o algo
+> que tenga que recordar, no uses esa palara exacta que te pase, no es necesari oque sea esa, si o si,
+> solo cuando quiera que de verdad recuerde algo importante
+
+Cards are written **only when the user asks**, and the trigger is the *intent*, not
+a literal phrase: "recuerda esto", "anotá que…", "no te olvides de…" all count, and
+no keyword list is parsed anywhere. The model decides, from the conversation, that
+the user is asking her to keep something important; the tool is the only way to
+write.
+
+Consequences, recorded so phase 2 is unambiguous:
+
+- **Phase 3 is shelved.** No automatic extraction after summaries, no card writing
+  on her own initiative. If it ever comes back it is a new decision, not a pending
+  task.
+- **No confirmation card** for `remember`: the user asking *is* the consent. It
+  still writes only to `~/.local/share/nerea/cards/`, still appends to the audit,
+  and still never deletes a card.
+- **The tool description carries the rule**, not the prompt: use it only when the
+  user explicitly asks to remember something important; never on her own; never
+  for chatter, greetings or a passing preference.
+- **`remember` obeys the same 2 KB cap**, so it either fits the topic's card or it
+  says so instead of silently dropping the fact.

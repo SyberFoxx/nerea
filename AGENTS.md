@@ -153,10 +153,25 @@ evidence. Append to it; do not rewrite history. Engram mirrors the decisions und
 
 ## Backlog
 
-| file | what | state |
-|---|---|---|
-| `odd/tasks/memory-layers.md` | layered memory: identity core, knowledge cards, rolling summary | proposed — waits on the write-policy decision |
-| `odd/tasks/system-access-tier-a.md` | read-only tools | shipped in 0.6.2 |
+One row per idea, with the state as of the last release. Update the row when an item is touched;
+a row that still says `proposed` was never started, and that is the whole point of the table.
 
-Tier B (commands behind a per-action confirmation) is still undesigned on purpose: the shape of the
-permission is the user's decision, not the agent's.
+| item | state | document |
+|---|---|---|
+| identity core — `persona.rs` on every turn | **shipped 0.5.7** | `odd/tasks/memory-layers.md` |
+| rolling summary — `memory.json`, 350 words | **shipped 0.3.0** | `odd/tasks/memory-layers.md` |
+| read-only tools — `read_file`, `list_dir`, `search` | **shipped 0.6.2** | `odd/tasks/system-access-tier-a.md` |
+| native function calling for tools | **shipped 0.6.2** | `odd/tasks/system-access-tier-a.md` |
+| knowledge cards (tier 2) | proposed | `odd/tasks/memory-layers.md`, L4 |
+| `remember` — cards only on request | decided, not built | `odd/tasks/memory-layers.md`, L6 |
+| `search` inside `.docx` / `.odt` / `.pdf` | proposed | `odd/tasks/system-access-tiers.md`, L2.1 |
+| `find` a file by name | proposed | `odd/tasks/system-access-tiers.md`, L2.2 |
+| per-turn observation budget | proposed | `odd/tasks/system-access-tiers.md`, L2.3 |
+| line numbers in `read_file` | proposed | `odd/tasks/system-access-tiers.md`, L2.4 |
+| audit visible in the history window | proposed | `odd/tasks/system-access-tiers.md`, L2.5 |
+| tier B — commands behind a confirmation | undesigned | `odd/tasks/system-access-tiers.md`, L3 |
+| tier C — write, clipboard, notifications, media | undesigned | `odd/tasks/system-access-tiers.md`, L4 |
+
+Two rules for this table. An item marked *shipped* is not reopened for a rewrite: it is improved in
+place. And tier B stays undesigned until the user shapes the permission — building the command
+first and guarding it later means it ran unguarded once.
