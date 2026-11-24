@@ -703,15 +703,27 @@ pub async fn send_message(
 
     let mut reply = String::new();
     let mut cancelled = false;
+    let mut budget = nerea_core::tools::Budget::per_message();
 
     // Reading is a loop: she asks for a file, the app runs the tool, and she
     // answers with the result in hand. Bounded, because each look is another
     // round trip and another slice of the context.
-    for _ in 0..=nerea_core::tools::MAX_ROUNDS {
+    //
+    // The last round ignores any call it still asks for: a turn may not end on a
+    // tool round. Restricting the tools instead is worse — this model answers by
+    // writing its own call syntax into the prose, and that markup reaches the
+    // chat (measured; see AGENTS.md).
+    for round in 0..=nerea_core::tools::MAX_ROUNDS {
+        let answering = round == nerea_core::tools::MAX_ROUNDS;
+        let said_before = reply.chars().count();
+
         let streamed = match stream_reply(&app, state.inner(), &provider, &request, &mut reply).await
         {
             Ok(streamed) => streamed,
             Err(err) => {
+                // The reason belongs in the log: a turn that ends mute is not
+                // debuggable from the outside.
+                eprintln!("nerea reply: {err}");
                 state.finish_turn(&reply).await;
                 emit_state(&app, "error");
                 speak(&app, &bank, "complain");
@@ -720,19 +732,21 @@ pub async fn send_message(
         };
 
         cancelled = streamed.cancelled;
-        if cancelled || streamed.calls.is_empty() {
+        if cancelled || answering || streamed.calls.is_empty() {
             break;
         }
+
+        let said: String = reply.chars().skip(said_before).collect();
 
         let mut calls = Vec::new();
         let mut results = Vec::new();
         for call in streamed.calls.into_iter().take(nerea_core::tools::MAX_CALLS_PER_ROUND) {
             let _ = app.emit(TOOL_EVENT, ToolNote { text: nerea_core::tools::describe(&call) });
-            let outcome = nerea_core::tools::run(&call);
+            let outcome = nerea_core::tools::run_charged(&call, &mut budget);
             results.push(outcome.observation);
             calls.push(call);
         }
-        state.push_tool_round(calls, results).await;
+        state.push_tool_round(&said, calls, results).await;
 
         // Her next round is a new paragraph, not a continuation of the line she
         // said before looking.
@@ -742,6 +756,14 @@ pub async fn send_message(
         }
 
         request = state.tool_request().await;
+    }
+
+    // A turn never ends silent. If every round came back empty, say so: a mute
+    // reply with files already read is worse than admitting it.
+    if reply.trim().is_empty() && !cancelled {
+        let line = "Me quedé en blanco y no te sirve. Preguntame otra vez, dale.";
+        let _ = app.emit(DELTA_EVENT, Delta { text: line.to_owned() });
+        reply.push_str(line);
     }
 
     let turns = state.finish_turn(&reply).await;

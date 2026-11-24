@@ -24,12 +24,21 @@ pub const MAX_CALLS_PER_ROUND: usize = 4;
 
 const DEFAULT_LINES: usize = 300;
 const MAX_LINES: usize = 1_200;
-/// Roughly 3k tokens: a fifth of the context budget, never more.
-const MAX_OBSERVATION_CHARS: usize = 12_000;
+/// One observation, in characters: about 2k tokens, a quarter of the window.
+const MAX_OBSERVATION_CHARS: usize = 8_000;
 const MAX_ENTRIES: usize = 200;
 const MAX_FILES: usize = 4_000;
 const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_DEPTH: usize = 6;
+/// Every document has to be unpacked before it can be read, and that is the
+/// expensive part. Forty of them is already a lot of parsing for one question.
+const MAX_DEEP_FILES: usize = 40;
+/// A name is cheap to compare, so a name search may answer with more paths.
+const MAX_FOUND: usize = 200;
+/// All the reading one message may do. Two full observations already cost about
+/// half the context window, and past that the budget cut drops the very question
+/// she was answering — she keeps calling tools with no idea what for.
+pub const OBSERVATION_BUDGET: usize = 16_000;
 const SKIP_DIRS: &[&str] = &[
     ".git",
     ".cache",
@@ -87,7 +96,8 @@ Word (.docx), OpenDocument (.odt), EPUB or HTML. Long files come back in windows
         ToolSpec {
             name: "search".to_owned(),
             description: "Search for a text inside the files of a directory, case-insensitively. \
-Returns path:line: text for each match."
+Returns path:line: text for each match. With `deep: true` it also reads inside PDF, Word (.docx), \
+OpenDocument (.odt) and EPUB files — slower, so it is off by default."
                 .to_owned(),
             parameters: json!({
                 "type": "object",
@@ -100,12 +110,41 @@ Returns path:line: text for each match."
                         "type": "string",
                         "description": "Directory to search in, or one starting with ~"
                     },
+                    "deep": {
+                        "type": "boolean",
+                        "description": "Also read inside PDF, .docx, .odt and EPUB. Default false"
+                    },
                     "limit": {
                         "type": "integer",
                         "description": "How many matches to return. Default 40, max 100"
                     }
                 },
                 "required": ["query", "path"]
+            }),
+        },
+        ToolSpec {
+            name: "find".to_owned(),
+            description: "Find files and folders by name across a directory tree, \
+case-insensitively. Returns one path per line, with a trailing / for a folder. Use this instead \
+of listing folder after folder."
+                .to_owned(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Part of the name to look for, case-insensitive"
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Directory to walk, or one starting with ~"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "How many paths to return. Default 200, max 400"
+                    }
+                },
+                "required": ["pattern", "path"]
             }),
         },
     ]
@@ -133,9 +172,61 @@ pub fn describe(call: &ToolCall) -> String {
     match call.name.as_str() {
         "read_file" => format!("leyendo {}", short_path(text("path"))),
         "list_dir" => format!("mirando {}", short_path(text("path"))),
-        "search" => format!("buscando «{}»", cut(text("query"), 40)),
+        "search" => {
+            let deep = args.get("deep").and_then(Value::as_bool).unwrap_or(false);
+            if deep {
+                format!("buscando «{}» adentro de los documentos", cut(text("query"), 40))
+            } else {
+                format!("buscando «{}»", cut(text("query"), 40))
+            }
+        }
+        "find" => format!("buscando el archivo «{}»", cut(text("pattern"), 40)),
         other => format!("usando {other}"),
     }
+}
+
+/// What one message may read, in characters.
+pub struct Budget {
+    left: usize,
+}
+
+impl Budget {
+    pub fn per_message() -> Self {
+        Self { left: OBSERVATION_BUDGET }
+    }
+
+    pub fn left(&self) -> usize {
+        self.left
+    }
+}
+
+/// Runs one call and charges what it returned against the turn.
+///
+/// Every call gets an answer, refused or not: a call without its result breaks
+/// the protocol for every round that follows.
+pub fn run_charged(call: &ToolCall, budget: &mut Budget) -> ToolOutcome {
+    if budget.left == 0 {
+        return ToolOutcome {
+            summary: describe(call),
+            observation: "No leo más en este turno: ya tenés material para contestar. \
+Respondé con lo que ya viste y ofrecé seguir si hace falta."
+                .to_owned(),
+            ok: false,
+        };
+    }
+
+    let mut outcome = run(call);
+    let taken = outcome.observation.chars().count();
+
+    if taken > budget.left {
+        let kept: String = outcome.observation.chars().take(budget.left).collect();
+        outcome.observation = format!("{kept}\n\n[recortado: el turno ya leyó bastante]");
+        budget.left = 0;
+    } else {
+        budget.left -= taken;
+    }
+
+    outcome
 }
 
 /// Runs one call. Every failure becomes text she can read and explain.
@@ -147,8 +238,9 @@ pub fn run(call: &ToolCall) -> ToolOutcome {
         "read_file" => read_file(&args),
         "list_dir" => list_dir(&args),
         "search" => search(&args),
+        "find" => find(&args),
         other => Err(format!(
-            "no tengo una herramienta llamada «{other}». Tengo read_file, list_dir y search"
+            "no tengo una herramienta llamada «{other}». Tengo read_file, list_dir, search y find"
         )),
     };
 
@@ -246,6 +338,8 @@ fn search(args: &Value) -> Result<String, String> {
 
     let root = guard::resolve(args.get("path").and_then(Value::as_str).unwrap_or("."))?;
     let limit = number_arg(args, "limit").unwrap_or(40).clamp(1, 100);
+    let deep = args.get("deep").and_then(Value::as_bool).unwrap_or(false);
+    let mut documents = MAX_DEEP_FILES;
 
     let mut hits: Vec<String> = Vec::new();
     let mut visited = 0usize;
@@ -270,8 +364,17 @@ fn search(args: &Value) -> Result<String, String> {
                     continue;
                 }
 
-                if meta.len() > MAX_FILE_BYTES || !extract::is_plain_text(&child) {
+                if meta.len() > MAX_FILE_BYTES {
                     continue;
+                }
+                // A document costs a parser per file. Deep is opt-in, and the
+                // budget is what keeps "search the novel" from becoming "search
+                // every document on the disk".
+                if !extract::is_plain_text(&child) {
+                    if !deep || documents == 0 {
+                        continue;
+                    }
+                    documents -= 1;
                 }
                 if guard::deny(&child).is_err() {
                     continue;
@@ -292,8 +395,9 @@ fn search(args: &Value) -> Result<String, String> {
     }
 
     if hits.is_empty() {
+        let scope = if deep { ", adentro de los documentos también" } else { "" };
         return Ok(format!(
-            "nada con «{}» en {} (miré {visited} archivos)",
+            "nada con «{}» en {} (miré {visited} archivos{scope})",
             query.trim(),
             root.display()
         ));
@@ -326,6 +430,78 @@ fn collect_hits(file: &Path, needle: &str, limit: usize, hits: &mut Vec<String>)
             return;
         }
     }
+}
+
+/// By name, not by content: the question "where is that file" used to cost three
+/// `list_dir` calls in a row.
+fn find(args: &Value) -> Result<String, String> {
+    let pattern = string_arg(args, "pattern")?.trim().to_owned();
+    let needle = pattern.to_lowercase();
+    if needle.is_empty() {
+        return Err("falta el nombre a buscar".to_owned());
+    }
+
+    let root = guard::resolve(args.get("path").and_then(Value::as_str).unwrap_or("."))?;
+    if !root.is_dir() {
+        return Err(format!("{} no es una carpeta", root.display()));
+    }
+    let limit = number_arg(args, "limit").unwrap_or(MAX_FOUND).clamp(1, MAX_FOUND * 2);
+
+    let mut found: Vec<String> = Vec::new();
+    let mut pending: Vec<(PathBuf, usize)> = vec![(root.clone(), 0)];
+    let mut visited = 0usize;
+
+    while let Some((dir, depth)) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let child = entry.path();
+            // `file_type` does not follow a link. That matters twice: walking a
+            // linked directory can loop forever, and the guard already refuses
+            // what the link points at.
+            let Ok(kind) = entry.file_type() else { continue };
+            let is_dir = kind.is_dir();
+
+            if guard::deny(&child).is_err() {
+                continue;
+            }
+            visited += 1;
+
+            if name.to_lowercase().contains(&needle) {
+                let line = if is_dir {
+                    format!("{}/", child.display())
+                } else if kind.is_symlink() {
+                    format!("{}@", child.display())
+                } else {
+                    child.display().to_string()
+                };
+                found.push(line);
+                if found.len() >= limit {
+                    break;
+                }
+            }
+
+            if is_dir && depth < MAX_DEPTH && !SKIP_DIRS.contains(&name.as_str()) {
+                pending.push((child, depth + 1));
+            }
+        }
+
+        if found.len() >= limit || visited >= MAX_FILES {
+            break;
+        }
+    }
+
+    if found.is_empty() {
+        return Ok(format!(
+            "ningún archivo con «{pattern}» en {} (miré {visited} entradas)",
+            root.display()
+        ));
+    }
+
+    let mut out = format!("{} con «{pattern}» en {}:\n", found.len(), root.display());
+    out.push_str(&found.join("\n"));
+    Ok(clip(out))
 }
 
 fn string_arg<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
@@ -464,5 +640,136 @@ mod tests {
         let clipped = clip("x".repeat(MAX_OBSERVATION_CHARS + 500));
         assert!(clipped.chars().count() < MAX_OBSERVATION_CHARS + 100);
         assert!(clipped.contains("recortado"));
+    }
+
+    #[test]
+    fn the_turn_budget_refuses_the_third_full_observation() {
+        let dir = scratch("budget");
+        let file = dir.join("big.txt");
+        let body: String = (0..400).map(|index| format!("{index:04} {}\n", "x".repeat(40))).collect();
+        fs::write(&file, body).expect("big file");
+
+        let mut budget = Budget::per_message();
+        for _ in 0..2 {
+            let outcome = run_charged(
+                &call("read_file", serde_json::json!({ "path": file, "limit": MAX_LINES })),
+                &mut budget,
+            );
+            assert!(outcome.ok, "{}", outcome.observation);
+            assert!(outcome.observation.chars().count() > 7_000, "una lectura llena");
+        }
+
+        let refused = run_charged(&call("read_file", serde_json::json!({ "path": file })), &mut budget);
+        assert!(!refused.ok, "el tercer turno ya no lee");
+        assert!(refused.observation.contains("Respondé"), "{}", refused.observation);
+        assert_eq!(budget.left(), 0);
+    }
+
+    #[test]
+    fn a_call_that_overflows_the_budget_keeps_what_fits() {
+        let dir = scratch("budget-partial");
+        let file = dir.join("big.txt");
+        let body: String = (0..400).map(|index| format!("{index:04} {}\n", "x".repeat(40))).collect();
+        fs::write(&file, body).expect("big file");
+
+        let mut budget = Budget::per_message();
+        run_charged(&call("read_file", serde_json::json!({ "path": file })), &mut budget);
+        let partial = run_charged(&call("read_file", serde_json::json!({ "path": file })), &mut budget);
+
+        assert!(partial.ok, "{}", partial.observation);
+        assert!(partial.observation.contains("recortado"), "{}", partial.observation);
+        assert_eq!(budget.left(), 0);
+    }
+
+    /// A minimal `.docx`: Word keeps the text in `word/document.xml` and nowhere
+    /// else, so a zip with that one part is a real document for the reader.
+    fn write_docx(path: &Path, text: &str) {
+        use std::io::Write;
+
+        let file = fs::File::create(path).expect("create docx");
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+
+        zip.start_file("word/document.xml", options).expect("document part");
+        let body = format!(
+            r#"<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>{text}</w:t></w:r></w:p></w:body></w:document>"#
+        );
+        zip.write_all(body.as_bytes()).expect("write document");
+        zip.finish().expect("finish docx");
+    }
+
+    /// The novel is a `.docx`: a search that cannot read inside it only finds it
+    /// by accident. Deep is opt-in because unpacking every document is expensive.
+    #[test]
+    fn search_turns_deep_only_when_asked() {
+        let dir = scratch("deep");
+        write_docx(&dir.join("novela.docx"), "Nerea vive en el faro");
+        fs::write(dir.join("notas.txt"), "Nerea camina por la costa").expect("plain note");
+
+        let shallow = run(&call("search", serde_json::json!({ "query": "Nerea", "path": dir })));
+        assert!(shallow.ok, "{}", shallow.observation);
+        assert!(shallow.observation.contains("notas.txt"), "{}", shallow.observation);
+        assert!(!shallow.observation.contains("novela.docx"), "{}", shallow.observation);
+
+        let deep = run(&call(
+            "search",
+            serde_json::json!({ "query": "Nerea", "path": dir, "deep": true }),
+        ));
+        assert!(deep.ok, "{}", deep.observation);
+        assert!(deep.observation.contains("novela.docx"), "{}", deep.observation);
+        assert!(deep.observation.contains("notas.txt"), "{}", deep.observation);
+    }
+
+    /// One damaged document is skipped, not fatal: a bad zip cannot take the
+    /// whole search down with it.
+    #[test]
+    fn deep_search_skips_a_broken_document() {
+        let dir = scratch("broken");
+        fs::write(dir.join("roto.docx"), b"esto no es un zip").expect("broken docx");
+        fs::write(dir.join("notas.txt"), "Nerea camina").expect("plain note");
+
+        let outcome = run(&call(
+            "search",
+            serde_json::json!({ "query": "Nerea", "path": dir, "deep": true }),
+        ));
+
+        assert!(outcome.ok, "{}", outcome.observation);
+        assert!(outcome.observation.contains("notas.txt"), "{}", outcome.observation);
+    }
+
+    /// She used `list_dir` three times in a row to find one file; a name is a
+    /// better question than a folder.
+    #[test]
+    fn find_matches_by_name_and_marks_folders() {
+        let dir = scratch("find");
+        fs::create_dir_all(dir.join("Novela")).expect("folder");
+        fs::write(dir.join("Novela").join("Nerea.docx"), b"x").expect("nested file");
+        fs::write(dir.join("otra-cosa.txt"), b"x").expect("other file");
+
+        let by_file = run(&call("find", serde_json::json!({ "pattern": "NEREA", "path": dir })));
+        assert!(by_file.ok, "{}", by_file.observation);
+        assert!(by_file.observation.contains("Nerea.docx"), "{}", by_file.observation);
+        assert!(!by_file.observation.contains("otra-cosa.txt"), "{}", by_file.observation);
+
+        let by_folder = run(&call("find", serde_json::json!({ "pattern": "novela", "path": dir })));
+        assert!(by_folder.ok, "{}", by_folder.observation);
+        assert!(by_folder.observation.contains("Novela/"), "{}", by_folder.observation);
+    }
+
+    #[test]
+    fn find_stops_at_the_limit_it_was_given() {
+        let dir = scratch("find-limit");
+        for index in 0..5 {
+            fs::write(dir.join(format!("hit-{index}.txt")), b"x").expect("file");
+        }
+
+        let outcome = run(&call(
+            "find",
+            serde_json::json!({ "pattern": "hit-", "path": dir, "limit": 2 }),
+        ));
+
+        assert!(outcome.ok, "{}", outcome.observation);
+        let listed = outcome.observation.lines().filter(|line| line.ends_with(".txt")).count();
+        assert_eq!(listed, 2, "{}", outcome.observation);
     }
 }

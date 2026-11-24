@@ -12,9 +12,9 @@ Source documents: `system-access-tiers.md` (tool surface and gaps) and
 
 | id | task | why it matters | size | state |
 |---|---|---|---|---|
-| T1 | `search` deep inside `.docx` / `.odt` / `.pdf` | the novel is a `.docx`: today it cannot be searched by content, only found by listing | S | proposed |
-| T2 | `find` a file by name | she used `list_dir` three times in a row to locate one file | S | proposed |
-| T3 | a per-turn observation budget | rounds are bounded, tokens are not: worst case ~36k tokens against an 8k budget | S | proposed |
+| T1 | `search` deep inside `.docx` / `.odt` / `.pdf` | the novel is a `.docx`: today it cannot be searched by content, only found by listing | S | **shipped 0.7.0** |
+| T2 | `find` a file by name | she used `list_dir` three times in a row to locate one file | S | **shipped 0.7.0** |
+| T3 | a per-turn observation budget | rounds are bounded, tokens are not: worst case ~36k tokens against an 8k budget | S | **shipped 0.7.0** |
 | T4 | `numbers` flag on `read_file` | she can say "líneas 40-60" but cannot cite `52: texto` | S | proposed |
 | T5 | the audit, visible in the history window | today it is `tail -f`; without this, "she can touch my machine" is not livable | M | proposed |
 | T6 | `list_dir` distinguishes symlink, hidden and file | a listing that lies is worse than a short one | S | proposed |
@@ -34,10 +34,12 @@ The audit line records `deep: true`. A malformed document is skipped, never fata
 whose file name contains it, case-insensitively, cap 200, same walk skips as
 `search`. One call replaces the three `list_dir` calls.
 
-**T3 — observation budget.** 24 000 characters of tool output per user message. On
-exhaustion the remaining calls return a readable message ("ya leí bastante; contestá
-con esto") and the loop ends with an answer. A test drives three maximum-size
-observations and asserts the third is refused.
+**T3 — observation budget.** *Revised while building T1:* 24 000 characters was measured
+against the 8 000-token window and does not fit — two full observations already ate
+three quarters of it and the prompt lost the question. Shipped as 8 000 characters per
+observation (12k before) and 16 000 per message, plus `compact_observations(400)` before
+each new round: older readings keep their first lines so the question survives.
+A test drives two full observations and asserts the third is refused.
 
 **T4 — line numbers.** `read_file {"path":…,"numbers":true}` prefixes every line
 with its number, and a line the user can check with `grep -n` matches exactly.
@@ -79,5 +81,14 @@ fingerprint. `remember` is the exception (the request is the consent).
 | D5 | recall is lexical only | a paraphrase does not find the old turn | known; cards (T8) cover the facts |
 | D6 | the desktop app has tools, the CLI has none | the headless harness cannot be used to test them | known |
 
+| D7 | restricting the tools makes this model write its DSML call syntax into the prose | an empty `tools` array and `tool_choice: "none"` both leak `<｜DSML｜ …>` into the chat | known; avoided by never restricting, worth a sanitizer if a provider changes |
+| D8 | she sometimes opens a turn in English before switching to Spanish | cosmetic, but it breaks the voice | known |
+
 Debt is recorded, not scheduled: it gets picked when it hurts more than the next
 feature, and the row moves to the queue when that happens.
+
+## Shipped
+
+| version | tasks | evidence |
+|---|---|---|
+| `0.7.0` | T1, T2, T3 | `search` with `deep: true` found "Capítulo 1" at line 1 inside `Nerea.docx`; `find` located both copies by name; 120 tests, clippy clean |

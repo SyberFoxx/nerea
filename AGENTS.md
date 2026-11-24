@@ -25,7 +25,7 @@ tools/voice           machine-local, gitignored: venv + GPT-SoVITS weights (~11 
 ```bash
 cargo build -p nerea-desktop                 # debug build
 cargo run -p nerea-desktop                   # the app
-cargo test                                   # 78 tests, no network
+cargo test                                   # 120 tests, no network
 cargo clippy --all-targets -- -D warnings
 node --check ui/avatar.js && node --check ui/main.js
 
@@ -46,8 +46,9 @@ Change her there, never in a provider or a command.
 
 ## What she can do with the machine
 
-Tier A only: **read**. `crates/nerea-core/src/tools` holds three tools — `read_file`,
-`list_dir`, `search` — and no shell, ever. They are declared to the API as real tools
+Tier A only: **read**. `crates/nerea-core/src/tools` holds four tools — `read_file`,
+`list_dir`, `search` (with `deep: true` for the formats that need a parser) and `find` — and no
+shell, ever. They are declared to the API as real tools
 (`tools::specs()`), so the model returns a `tool_calls` field instead of writing a format into
 its prose. That is deliberate: with a JSON block in the prompt a flash model would announce
 "voy a buscar" and stop, and the JSON could leak into the chat. The API cannot half-say a call.
@@ -58,9 +59,9 @@ its prose. That is deliberate: with a JSON block in the prompt a flash model wou
   around them. `~/.ssh`, `~/.gnupg`, `~/.pki`, the browser profiles, her own data and config
   dirs, `/etc/shadow`, `/proc`, `/sys` and credential-shaped names (`id_rsa`, `.env`, `*.pem`,
   `*.key`) are never readable.
-- Every call appends one line to `~/.local/share/nerea/audit.jsonl`. Observations are `user`
-  turns in the live conversation but never in the transcript, and they are clipped at ~12k
-  characters: three looks per message, no more.
+- Every call appends one line to `~/.local/share/nerea/audit.jsonl`. One observation is clipped at
+  8k characters and one message may read at most 16k in total (`tools::OBSERVATION_BUDGET`); past
+  that a call is answered with "ya tenés material para contestar" instead of more text.
 - Round trip: the reply streams as text; when it ends with `tool_calls`, the app runs each one,
   pushes the assistant turn plus one `role: "tool"` result per call, and asks again — at most
   three rounds per message. A tool result is bound to its call id, never free-floating text.
@@ -105,6 +106,17 @@ its prose. That is deliberate: with a JSON block in the prompt a flash model wou
   which Cargo never prunes: 29 rebuilds became 41 GB. Desktop builds need `["cdylib", "rlib"]`.
 - **A tool result must follow its call.** `Conversation::trimmed` drops leading `role: "tool"`
   messages when the budget cuts through a round; without that, the API rejects the prompt.
+- **An assistant tool round must carry the words she said.** `push_tool_round` takes that round's
+  prose; with `content: ""` the next round reads as if she went silent and only called tools, and
+  she answers with an apology instead of an answer. Measured, not guessed.
+- **Observations have to be folded between rounds.** A full observation is a quarter of the
+  context window: three untouched ones push the user's own question out of `trimmed`, and a model
+  that cannot see the question keeps calling tools forever. `compact_observations(400)` runs
+  before each new round.
+- **Never restrict the tools to force an answer.** With an empty `tools` array, and even with
+  `tool_choice: "none"`, this model writes its own `<｜DSML｜ …>` call syntax into the prose and
+  it reaches the chat (both measured on `deepseek-v4.1-flash`). Keep the tools declared and free;
+  the last round of a turn simply ignores any call it still asks for.
 - **`git pull --ff-only` refuses on a diverged branch** — the updater reports it instead of merging.
 
 ## Where state lives
@@ -167,9 +179,9 @@ a row that still says `proposed` was never started, and that is the whole point 
 | native function calling for tools | **shipped 0.6.2** | `odd/tasks/system-access-tier-a.md` |
 | knowledge cards (tier 2) | proposed | `odd/tasks/memory-layers.md`, L4 |
 | `remember` — cards only on request | decided, not built | `odd/tasks/memory-layers.md`, L6 |
-| `search` inside `.docx` / `.odt` / `.pdf` | proposed | `odd/tasks/system-access-tiers.md`, L2.1 |
-| `find` a file by name | proposed | `odd/tasks/system-access-tiers.md`, L2.2 |
-| per-turn observation budget | proposed | `odd/tasks/system-access-tiers.md`, L2.3 |
+| `search` inside `.docx` / `.odt` / `.pdf` | **shipped 0.7.0** | `odd/tasks/system-access-tiers.md`, L2.1 |
+| `find` a file by name | **shipped 0.7.0** | `odd/tasks/system-access-tiers.md`, L2.2 |
+| per-turn observation budget | **shipped 0.7.0** | `odd/tasks/system-access-tiers.md`, L2.3 |
 | line numbers in `read_file` | proposed | `odd/tasks/system-access-tiers.md`, L2.4 |
 | audit visible in the history window | proposed | `odd/tasks/system-access-tiers.md`, L2.5 |
 | tier B — commands behind a confirmation | undesigned | `odd/tasks/system-access-tiers.md`, L3 |

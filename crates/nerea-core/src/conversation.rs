@@ -43,9 +43,27 @@ impl Conversation {
         self.messages.push(message);
     }
 
-    /// The assistant turn that asked for tools; the results need it in front.
-    pub fn push_tool_round(&mut self, calls: Vec<ToolCall>) {
-        self.messages.push(ChatMessage::assistant_tools(calls));
+    /// The assistant turn that asked for tools; the results need it in front,
+    /// and the words she said before looking belong to that same turn.
+    pub fn push_tool_round(&mut self, content: &str, calls: Vec<ToolCall>) {
+        self.messages.push(ChatMessage::assistant_tools(content, calls));
+    }
+
+    /// Folds every observation that came back before the newest round into its
+    /// first lines.
+    ///
+    /// One full observation costs about a quarter of the window, so three rounds
+    /// of untouched results push the user's own question out of the prompt — and
+    /// a model that cannot see the question keeps calling tools with no idea what
+    /// it is answering.
+    pub fn compact_observations(&mut self, keep: usize) {
+        for message in &mut self.messages {
+            if message.role != Role::Tool || message.content.chars().count() <= keep {
+                continue;
+            }
+            let head: String = message.content.chars().take(keep).collect();
+            message.content = format!("{head}… [recortado: leído en un turno anterior]");
+        }
     }
 
     /// What one tool answered, bound to the call it belongs to.
@@ -197,6 +215,49 @@ mod tests {
         let prompt = conversation.trimmed();
         assert_eq!(prompt.len(), 1);
         assert_eq!(prompt[0].role, Role::System);
+    }
+
+    /// Her words and her calls travel in the same assistant turn. Dropped words
+    /// make the next round read as if she went silent and started calling tools
+    /// out of nowhere, and she answers with an apology instead of the answer.
+    #[test]
+    fn a_tool_round_keeps_the_words_she_said() {
+        let mut conversation = Conversation::new("s", 100);
+        conversation.push_tool_round(
+            "Voy a buscarlo.",
+            vec![ToolCall {
+                id: "call_1".to_owned(),
+                name: "find".to_owned(),
+                arguments: "{}".to_owned(),
+            }],
+        );
+        conversation.push_tool_result("call_1", "encontrado");
+
+        let prompt = conversation.trimmed();
+        assert_eq!(prompt[1].role, Role::Assistant);
+        assert_eq!(prompt[1].content, "Voy a buscarlo.");
+        assert_eq!(prompt[1].tool_calls.as_ref().map(Vec::len), Some(1));
+        assert_eq!(prompt[2].role, Role::Tool);
+    }
+
+    #[test]
+    fn older_observations_are_folded_before_a_new_round() {
+        let mut conversation = Conversation::new("s", 200);
+        conversation.push_user("¿dónde está la novela?");
+        conversation.push_tool_round(
+            "Busco.",
+            vec![ToolCall { id: "c1".to_owned(), name: "search".to_owned(), arguments: "{}".to_owned() }],
+        );
+        conversation.push_tool_result("c1", "x".repeat(3_000));
+
+        conversation.compact_observations(400);
+
+        let prompt = conversation.trimmed();
+        let tool = prompt.iter().find(|message| message.role == Role::Tool).expect("tool result");
+        assert!(tool.content.chars().count() < 500, "{}", tool.content.chars().count());
+        assert!(tool.content.contains("recortado"));
+        // The question is still there: that is what she was answering.
+        assert!(prompt.iter().any(|message| message.content.contains("novela")));
     }
 
     #[test]

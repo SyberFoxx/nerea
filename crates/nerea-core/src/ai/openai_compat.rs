@@ -84,6 +84,17 @@ struct ChatBody<'a> {
     tools: Vec<WireTool<'a>>,
 }
 
+/// One place builds the body, so the wire shape cannot drift between the
+/// streaming call and the plain one.
+fn chat_body<'a>(model: &'a str, request: &'a ChatRequest, stream: bool) -> ChatBody<'a> {
+    ChatBody {
+        model,
+        messages: wire_messages(&request.messages),
+        stream,
+        tools: wire_tools(&request.tools),
+    }
+}
+
 #[derive(Serialize)]
 struct WireMessage<'a> {
     role: &'a str,
@@ -277,12 +288,7 @@ impl AiProvider for OpenAiCompatProvider {
     }
 
     async fn chat_completion(&self, request: &ChatRequest) -> Result<ChatResponse, ProviderError> {
-        let body = ChatBody {
-            model: &self.model,
-            messages: wire_messages(&request.messages),
-            stream: false,
-            tools: wire_tools(&request.tools),
-        };
+        let body = chat_body(&self.model, request, false);
 
         let response = self
             .request_builder(&request.session_id)
@@ -324,12 +330,7 @@ impl AiProvider for OpenAiCompatProvider {
         &self,
         request: &ChatRequest,
     ) -> Result<ChatStream, ProviderError> {
-        let body = ChatBody {
-            model: &self.model,
-            messages: wire_messages(&request.messages),
-            stream: true,
-            tools: wire_tools(&request.tools),
-        };
+        let body = chat_body(&self.model, request, true);
 
         // No total timeout here: an SSE body can legitimately stay open for minutes.
         let response = self
@@ -729,7 +730,7 @@ mod tests {
     #[test]
     fn a_tool_result_carries_the_call_it_answers() {
         let messages = vec![
-            ChatMessage::assistant_tools(vec![ToolCall {
+            ChatMessage::assistant_tools("", vec![ToolCall {
                 id: "call_1".to_owned(),
                 name: "read_file".to_owned(),
                 arguments: "{}".to_owned(),

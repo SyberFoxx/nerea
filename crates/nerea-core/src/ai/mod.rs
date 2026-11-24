@@ -68,12 +68,13 @@ impl ChatMessage {
         Self::plain(Role::Assistant, content)
     }
 
-    /// The assistant turn that asked for tools. The results cannot be sent
-    /// without it: every result answers a specific call id.
-    pub fn assistant_tools(calls: Vec<ToolCall>) -> Self {
+    /// The assistant turn that asked for tools, with whatever she said in the
+    /// same breath. Dropping that text makes her forget her own sentence: the
+    /// next round reads as if she went silent and only called tools.
+    pub fn assistant_tools(content: impl Into<String>, calls: Vec<ToolCall>) -> Self {
         Self {
             role: Role::Assistant,
-            content: String::new(),
+            content: content.into(),
             tool_calls: Some(calls),
             tool_call_id: None,
         }

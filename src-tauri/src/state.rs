@@ -31,6 +31,8 @@ inventes nada. No resumas saludos ni charla trivial. Respondé únicamente la me
 
 /// Same budget as the CLI: recent context, not a full window.
 const CONTEXT_BUDGET_TOKENS: usize = 8_000;
+/// How much of an older observation survives once a newer round lands.
+const COMPACT_OBSERVATION_CHARS: usize = 400;
 
 /// How much of the stored conversation is restored into the prompt.
 const RESTORED_MESSAGES: usize = 400;
@@ -225,10 +227,18 @@ impl AppState {
 
     /// Keeps what she read in the live thread, never in the transcript: her
     /// memory is a conversation, not a filesystem.
-    pub async fn push_tool_round(&self, calls: Vec<ToolCall>, results: Vec<String>) {
+    pub async fn push_tool_round(
+        &self,
+        said: &str,
+        calls: Vec<ToolCall>,
+        results: Vec<String>,
+    ) {
         let mut session = self.session.lock().await;
+        // What she read in an earlier round only needs its opening lines: the
+        // question she is answering is worth more than the tail of an old file.
+        session.conversation.compact_observations(COMPACT_OBSERVATION_CHARS);
         let ids: Vec<String> = calls.iter().map(|call| call.id.clone()).collect();
-        session.conversation.push_tool_round(calls);
+        session.conversation.push_tool_round(said, calls);
         for (id, result) in ids.iter().zip(results) {
             session.conversation.push_tool_result(id, result);
         }

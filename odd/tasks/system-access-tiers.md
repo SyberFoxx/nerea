@@ -95,3 +95,23 @@ guarded later is a tool that ran unguarded once.
 - Which binaries go in the initial allowlist (`ls`, `cat`, `rg`, `git status`?).
 - Does the confirmation card grow over her own window or appear as its own?
 - Does "allow always" survive a restart, and where does it live?
+
+### L7 — what 0.7.0 closed (measured, not assumed)
+
+| gap | state |
+|---|---|
+| L2.1 `search` inside `.docx` / `.odt` / `.pdf` | **closed** — `deep: true`, 40 documents per search, 2 MB each, and a damaged document is skipped instead of killing the search |
+| L2.2 `find` by name | **closed** — `find {pattern, path}`, case-insensitive, folders end in `/`, links in `@`, cap 200 |
+| L2.3 per-turn budget | **closed** — 8 000 characters per observation, 16 000 per message, and older readings folded to their first 400 |
+
+Two defects came out of running it end to end, not out of reading the code:
+
+- **An assistant tool round kept no prose.** `push_tool_round` pushed an empty `content`, so the
+  next round saw tool results with no record of what she had just said. She answered with an
+  apology ("se me trabó la mano") instead of an answer.
+- **The question fell out of the prompt.** Three untouched observations are more than the 8 000
+  token window; `trimmed` kept the newest tool results and dropped the user's question, and the
+  model then called tools forever with nothing to answer. Folded observations fixed it.
+
+Still open in tier A: line numbers (T4), the audit in the history window (T5), an honest listing
+(T6), honest descriptions (T7).
