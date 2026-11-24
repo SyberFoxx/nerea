@@ -153,6 +153,9 @@ evidence. Append to it; do not rewrite history. Engram mirrors the decisions und
 
 ## Backlog
 
+**The work queue is `odd/tasks/work-queue.md`**: one task per session, each with its acceptance line.
+The table below is the summary; the queue is what you actually pick from.
+
 One row per idea, with the state as of the last release. Update the row when an item is touched;
 a row that still says `proposed` was never started, and that is the whole point of the table.
 
