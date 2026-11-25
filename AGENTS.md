@@ -25,7 +25,7 @@ tools/voice           machine-local, gitignored: venv + GPT-SoVITS weights (~11 
 ```bash
 cargo build -p nerea-desktop                 # debug build
 cargo run -p nerea-desktop                   # the app
-cargo test                                   # 146 tests, no network
+cargo test                                   # 166 tests, no network
 cargo clippy --all-targets -- -D warnings
 node --check ui/avatar.js && node --check ui/main.js
 
@@ -51,6 +51,11 @@ Change her there, never in a provider or a command.
 
 ## What she can do with the machine
 
+Sound: push-to-talk records with `arecord` (not `pw-record`: see the trap below), transcribes
+with `faster-whisper` in the same venv as the voice, and answers in the chat. A named pipe
+(`$XDG_RUNTIME_DIR/nerea/ptt`) is the way in — `echo start|stop|toggle >` it, or
+`packaging/nerea-talk.sh`.
+
 Tier A is **read**, with one exception: `crates/nerea-core/src/tools` holds four read tools —
 `read_file`, `list_dir`, `search` (with `deep: true` for the formats that need a parser) and
 `find` — plus `remember`, which writes a knowledge card. No shell, ever, and `remember` takes no
@@ -65,6 +70,9 @@ its prose. That is deliberate: with a JSON block in the prompt a flash model wou
   around them. `~/.ssh`, `~/.gnupg`, `~/.pki`, the browser profiles, her own data and config
   dirs, `/etc/shadow`, `/proc`, `/sys` and credential-shaped names (`id_rsa`, `.env`, `*.pem`,
   `*.key`) are never readable.
+- `processes`, `system`, `services` and `logs` read the machine's vitals: `/proc` directly,
+  plus `systemctl --failed` and `journalctl` with fixed arguments. Read-only, no shell, no command
+  assembled from model text. `processes` sees every process; `limit` decides how many come back.
 - `read_file` takes `numbers: true` and then prints `52:linea`, the same shape `grep -n` uses.
   `list_dir` marks each row `d`, `l` or `f`, because a link listed as a file is a lie.
 - Every call appends one line to `~/.local/share/nerea/audit.jsonl`. One observation is clipped at
@@ -125,6 +133,16 @@ its prose. That is deliberate: with a JSON block in the prompt a flash model wou
   body 1, and the floor is one point: an earlier floor of two made every fact written by `remember`
   unreachable, because such a card has no tags until you add them. A card created without tags is
   indexed by its topic for the same reason.
+- **`pw-record` is broken on this machine.** Its native PipeWire capture returned a signal
+  pinned at full scale (RMS 18 800, peak 32 768) for a silent room, at every gain and every input
+  source; the same microphone through `arecord -D default` lands at RMS 360. A saturated signal is
+  not noise to filter — the waveform is already destroyed. Record with `arecord`, and keep the
+  peak in the log: "she can't hear me" is undebuggable without it.
+- **Signals in this process crash it.** `SIGUSR1` gave a SIGSEGV inside `libjavascriptcoregtk`:
+  WebKit keeps its own handlers, and `signal-hook-registry` chains to them from an
+  async-signal-safe context. Use the named pipe.
+- **The microphone is at 18 %.** The app normalises a quiet clip to a 9 000 peak before sending
+  it, so the system volume does not have to be right for her to hear you.
 - **Never restrict the tools to force an answer.** With an empty `tools` array, and even with
   `tool_choice: "none"`, this model writes its own `<｜DSML｜ …>` call syntax into the prose and
   it reaches the chat (both measured on `deepseek-v4.1-flash`). Keep the tools declared and free;
@@ -158,6 +176,9 @@ and `NEREA_TTS_PYTHON` tune the engine.
 | `NEREA_SUMMARIZE_NOW=1` | force one summary |
 | `NEREA_RECALL_QUERY="…"` | print what recall would send |
 | `NEREA_CARDS_QUERY="…"` | print the cards a message would carry |
+| `NEREA_LISTEN_MS=3000` | one push-to-talk turn by itself: record 3 s, transcribe, answer |
+| `NEREA_MIC=default` | capture device for `arecord` |
+| `NEREA_STT_MODEL=small` | whisper model; `base` is faster and worse in Spanish |
 | `NEREA_SAY_TEST="…"` | run one sentence through the whole voice path |
 | `NEREA_AUTO_UPDATE=1` | pull, rebuild and restart if behind |
 

@@ -12,6 +12,7 @@
 pub mod audit;
 pub mod extract;
 pub mod guard;
+pub mod system;
 
 use std::path::{Path, PathBuf};
 
@@ -156,6 +157,58 @@ of listing folder after folder."
             }),
         },
         ToolSpec {
+            name: "processes".to_owned(),
+            description: "List the processes running on the machine, with CPU and memory. \
+Read-only: it never starts, stops or signals anything. Sorted by memory by default; use \
+`sort: \"cpu\"` to find what is hot, or `limit` to see more than the first 30."
+                .to_owned(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "How many processes to show. Default 30, max 5000"
+                    },
+                    "sort": {
+                        "type": "string",
+                        "description": "\"mem\" (default), \"cpu\" or \"pid\""
+                    }
+                }
+            }),
+        },
+        ToolSpec {
+            name: "system".to_owned(),
+            description: "The machine's health in one answer: memory and swap in use, load \
+average, how long it has been up, and how full each disk is. Read-only."
+                .to_owned(),
+            parameters: json!({ "type": "object", "properties": {} }),
+        },
+        ToolSpec {
+            name: "services".to_owned(),
+            description: "Which systemd units have failed. Read-only: it reports what is \
+broken, it does not restart anything."
+                .to_owned(),
+            parameters: json!({ "type": "object", "properties": {} }),
+        },
+        ToolSpec {
+            name: "logs".to_owned(),
+            description: "Recent entries from the system journal, errors by default. Read-only."
+                .to_owned(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "lines": {
+                        "type": "integer",
+                        "description": "How many entries. Default 20, max 80"
+                    },
+                    "priority": {
+                        "type": "string",
+                        "description": "\"err\" (default), \"warn\", \"crit\" or \"info\""
+                    }
+                }
+            }),
+        },
+        ToolSpec {
             name: "remember".to_owned(),
             description: "Save a durable fact in your own memory cards, one card per topic. Use it \
 ONLY when the user explicitly asks you to remember something important (\"recuerda esto\", \"anotá \
@@ -221,6 +274,10 @@ pub fn describe(call: &ToolCall) -> String {
         }
         "find" => format!("buscando el archivo «{}»", cut(text("pattern"), 40)),
         "remember" => format!("anotando en «{}»", cut(text("topic"), 30)),
+        "processes" => "mirando los procesos".to_owned(),
+        "system" => "mirando la salud de la máquina".to_owned(),
+        "services" => "mirando los servicios".to_owned(),
+        "logs" => "leyendo los errores del sistema".to_owned(),
         other => format!("usando {other}"),
     }
 }
@@ -279,10 +336,21 @@ pub fn run(call: &ToolCall) -> ToolOutcome {
         "list_dir" => list_dir(&args),
         "search" => search(&args),
         "find" => find(&args),
+        "processes" => {
+            let limit = number_arg(&args, "limit").unwrap_or(30);
+            let sort = system::Sort::parse(args.get("sort").and_then(Value::as_str).unwrap_or("mem"));
+            system::processes(limit, sort)
+        }
+        "system" => system::vitals(),
+        "services" => system::services(),
+        "logs" => system::logs(
+            number_arg(&args, "lines").unwrap_or(20),
+            args.get("priority").and_then(Value::as_str).unwrap_or("err"),
+        ),
         "remember" => keep(&args, &cards::dir()),
         other => Err(format!(
-            "no tengo una herramienta llamada «{other}». Tengo read_file, list_dir, search, find y \
-remember"
+            "no tengo una herramienta llamada «{other}». Tengo read_file, list_dir, search, find, \
+remember, processes, system, services y logs"
         )),
     };
 
