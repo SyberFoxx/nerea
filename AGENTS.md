@@ -25,7 +25,7 @@ tools/voice           machine-local, gitignored: venv + GPT-SoVITS weights (~11 
 ```bash
 cargo build -p nerea-desktop                 # debug build
 cargo run -p nerea-desktop                   # the app
-cargo test                                   # 126 tests, no network
+cargo test                                   # 146 tests, no network
 cargo clippy --all-targets -- -D warnings
 node --check ui/avatar.js && node --check ui/main.js
 
@@ -39,6 +39,11 @@ python3 docs/brand/make_brand.py              # logo, social card, signature (ba
 
 ## Who she is
 
+Her written voice is **Spanish**. `persona.rs` says it in so many words: no kana, no kanji in the
+chat — a kana in the middle of a sentence reads as a bug, not as a tic. Her tic is «vaya, vaya»,
+and the Japanese translator turns it back into あらあら for the spoken line. A test fails if any
+kana or kanji ever comes back into the character sheet.
+
 `crates/nerea-core/src/persona.rs` holds her whole self — name, family, history, temper, voice — and
 the machine contract that keeps her useful. It travels with **every** request, so it has a size test:
 if the persona grows past its budget, the test fails instead of quietly costing tokens on every turn.
@@ -46,9 +51,10 @@ Change her there, never in a provider or a command.
 
 ## What she can do with the machine
 
-Tier A only: **read**. `crates/nerea-core/src/tools` holds four tools — `read_file`,
-`list_dir`, `search` (with `deep: true` for the formats that need a parser) and `find` — and no
-shell, ever. They are declared to the API as real tools
+Tier A is **read**, with one exception: `crates/nerea-core/src/tools` holds four read tools —
+`read_file`, `list_dir`, `search` (with `deep: true` for the formats that need a parser) and
+`find` — plus `remember`, which writes a knowledge card. No shell, ever, and `remember` takes no
+path: the file name comes from a slug, so it can only ever land in `cards/`. They are declared to the API as real tools
 (`tools::specs()`), so the model returns a `tool_calls` field instead of writing a format into
 its prose. That is deliberate: with a JSON block in the prompt a flash model would announce
 "voy a buscar" and stop, and the JSON could leak into the chat. The API cannot half-say a call.
@@ -115,6 +121,10 @@ its prose. That is deliberate: with a JSON block in the prompt a flash model wou
   context window: three untouched ones push the user's own question out of `trimmed`, and a model
   that cannot see the question keeps calling tools forever. `compact_observations(400)` runs
   before each new round.
+- **A card nobody can find is a card that does not exist.** Selection scores tags 3, title 2,
+  body 1, and the floor is one point: an earlier floor of two made every fact written by `remember`
+  unreachable, because such a card has no tags until you add them. A card created without tags is
+  indexed by its topic for the same reason.
 - **Never restrict the tools to force an answer.** With an empty `tools` array, and even with
   `tool_choice: "none"`, this model writes its own `<｜DSML｜ …>` call syntax into the prose and
   it reaches the chat (both measured on `deepseek-v4.1-flash`). Keep the tools declared and free;
@@ -128,6 +138,7 @@ its prose. That is deliberate: with a JSON block in the prompt a flash model wou
 | `~/.config/nerea/config.toml` | provider, fallback, `[voice] speak` |
 | `~/.local/share/nerea/conversation.jsonl` | one JSON line per turn, the source of truth |
 | `~/.local/share/nerea/memory.json` | running summary + the timestamp it covers |
+| `~/.local/share/nerea/cards/<topic>.md` | one knowledge card per topic: front matter, then the facts as bullets |
 | `~/.local/share/nerea/audit.jsonl` | one line per tool call: when, what, arguments, outcome |
 | `/tmp/nerea-tts.log` | engine output when the app starts it |
 | `$XDG_RUNTIME_DIR/nerea/line.wav` | the line being played |
@@ -146,6 +157,7 @@ and `NEREA_TTS_PYTHON` tune the engine.
 | `NEREA_OPEN_HISTORY=1` | open the history window |
 | `NEREA_SUMMARIZE_NOW=1` | force one summary |
 | `NEREA_RECALL_QUERY="…"` | print what recall would send |
+| `NEREA_CARDS_QUERY="…"` | print the cards a message would carry |
 | `NEREA_SAY_TEST="…"` | run one sentence through the whole voice path |
 | `NEREA_AUTO_UPDATE=1` | pull, rebuild and restart if behind |
 
@@ -179,8 +191,8 @@ a row that still says `proposed` was never started, and that is the whole point 
 | rolling summary — `memory.json`, 350 words | **shipped 0.3.0** | `odd/tasks/memory-layers.md` |
 | read-only tools — `read_file`, `list_dir`, `search` | **shipped 0.6.2** | `odd/tasks/system-access-tier-a.md` |
 | native function calling for tools | **shipped 0.6.2** | `odd/tasks/system-access-tier-a.md` |
-| knowledge cards (tier 2) | proposed | `odd/tasks/memory-layers.md`, L4 |
-| `remember` — cards only on request | decided, not built | `odd/tasks/memory-layers.md`, L6 |
+| knowledge cards (tier 2) | **shipped 0.9.0** | `odd/tasks/memory-layers.md`, L4 |
+| `remember` — cards only on request | **shipped 0.9.0** | `odd/tasks/memory-layers.md`, L6 |
 | `search` inside `.docx` / `.odt` / `.pdf` | **shipped 0.7.0** | `odd/tasks/system-access-tiers.md`, L2.1 |
 | `find` a file by name | **shipped 0.7.0** | `odd/tasks/system-access-tiers.md`, L2.2 |
 | per-turn observation budget | **shipped 0.7.0** | `odd/tasks/system-access-tiers.md`, L2.3 |

@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="#quick-start"><img alt="version" src="https://img.shields.io/badge/version-0.8.0-2ec4b6?style=flat-square" /></a>
+  <a href="#quick-start"><img alt="version" src="https://img.shields.io/badge/version-0.9.0-2ec4b6?style=flat-square" /></a>
   <img alt="rust" src="https://img.shields.io/badge/Rust-2024-8b5cf6?style=flat-square&logo=rust&logoColor=white" />
   <img alt="tauri" src="https://img.shields.io/badge/Tauri-2-8b5cf6?style=flat-square&logo=tauri&logoColor=white" />
   <img alt="linux" src="https://img.shields.io/badge/Linux-x86__64-2ec4b6?style=flat-square&logo=linux&logoColor=white" />
@@ -52,7 +52,7 @@ to the left, keeping her feet exactly where they were. Nothing else opens on lau
 | **Interaction** | click her to open the chat, `✕` to close it, drag her to move, right-click for the menu, `Esc` to close |
 | **Reactions** | 15 single-frame expressions: `idle`, `tease`, `jealous`, `flirt`, `affection`, `laugh`, `surprise`, `complain`, `sleepy` … |
 | **Voice** | a cloned Japanese voice for short lines; Spanish subtitles stay on screen |
-| **Memory** | every turn is appended to disk and reloaded on start; the full log lives in a read-only window |
+| **Memory** | three layers: her identity always, a running summary of what happened, and small fact cards she picks by topic; the full log lives in a read-only window |
 | **Triggers** | launch, first launch after history, 4 minutes idle, provider failure, the tone of the reply, closing the app |
 | **Providers** | `opencode-go` (pinned to one model) with `deepseek` as the fallback path |
 
@@ -298,7 +298,7 @@ cargo run -p nerea-cli -- config show|path|init
 cargo run -p nerea-desktop                       # the app
 NEREA_DEBUG=1 cargo run -p nerea-desktop         # log window and run events
 
-cargo test                                       # 126 tests, no network
+cargo test                                       # 146 tests, no network
 cargo clippy --all-targets -- -D warnings
 ```
 
@@ -324,11 +324,12 @@ cargo clippy --all-targets -- -D warnings
 | `0.6.1` | the tool block is found anywhere in her answer, so it never leaks into the chat |
 | `0.6.2` | reading is native function calling: she cannot say she will look and then not look |
 | `0.7.0` | she searches inside the documents themselves, and finds a file by name |
-| **`0.8.0`** | tier A closed: line numbers, an honest listing, and the audit on screen |
+| `0.8.0` | tier A closed: line numbers, an honest listing, and the audit on screen |
+| **`0.9.0`** | she keeps facts in cards, and only writes one when you ask her to |
 
 PC control grows one tier at a time, and tier A is read-only on purpose: files, never a shell.
-She asks with a real tool call, the app runs one of four named tools — `read_file`, `list_dir`,
-`search` and `find` — and every call is written to `~/.local/share/nerea/audit.jsonl`, where the
+She asks with a real tool call, the app runs one of five named tools — `read_file`, `list_dir`,
+`search`, `find` and `remember` — and every call is written to `~/.local/share/nerea/audit.jsonl`, where the
 history window shows the last fifty. Search goes
 inside PDF, Word, OpenDocument and EPUB files when asked, and a single message may read at most
 16 000 characters: past that, the prompt loses the question she was answering. The paths that hold
