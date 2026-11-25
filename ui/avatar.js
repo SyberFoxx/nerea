@@ -100,10 +100,69 @@ function scrollToEnd() {
   log.scrollTop = log.scrollHeight;
 }
 
+/// The card that asks for a click. The argv is the whole point: "allow pandoc"
+/// without seeing the arguments is a permission nobody reviewed.
+function showApproval(request) {
+  if (!approveBlock || !approveBody || !request) return;
+
+  approveBody.replaceChildren();
+
+  const head = document.createElement("header");
+  head.className = "change-head";
+
+  const command = document.createElement("strong");
+  command.textContent = [request.program, ...(request.args ?? [])].join(" ");
+  head.append(command);
+
+  const cwd = document.createElement("p");
+  cwd.className = "approve-cwd";
+  cwd.textContent = `en ${request.cwd ?? "?"}`;
+
+  const actions = document.createElement("div");
+  actions.className = "change-actions";
+
+  const allow = document.createElement("button");
+  allow.type = "button";
+  allow.className = "change-apply";
+  allow.textContent = "Permitir";
+
+  const deny = document.createElement("button");
+  deny.type = "button";
+  deny.className = "change-discard";
+  deny.textContent = "Denegar";
+
+  const answer = async (approved) => {
+    allow.disabled = true;
+    deny.disabled = true;
+    approveBlock.hidden = true;
+    setWorking(approved ? "ejecutando…" : "denegado");
+    await invoke("answer_approval", { id: request.id, approved }).catch(() => {});
+  };
+
+  allow.addEventListener("click", () => answer(true));
+  deny.addEventListener("click", () => answer(false));
+
+  actions.append(allow, deny);
+  approveBody.append(head, cwd);
+
+  if (request.warning) {
+    const warning = document.createElement("p");
+    warning.className = "approve-warning";
+    warning.textContent = request.warning;
+    approveBody.append(warning);
+  }
+
+  approveBody.append(actions);
+  approveBlock.hidden = false;
+}
+
 /// Asks the app whether a command is waiting for a click. The event usually
 /// arrives; this is what makes the card impossible to miss.
 async function checkApproval() {
-  const pending = await invoke("pending_approval").catch(() => null);
+  const pending = await invoke("pending_approval").catch((error) => {
+    setWorking(`sondeo falló: ${describe(error)}`);
+    return null;
+  });
   if (!pending) return;
   if (approveBlock && !approveBlock.hidden) return;
   showApproval(pending);

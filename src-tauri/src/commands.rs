@@ -589,7 +589,11 @@ pub struct PendingChange {
 pub async fn pending_approval(
     state: tauri::State<'_, AppState>,
 ) -> Result<Option<serde_json::Value>, String> {
-    Ok(state.approval_view())
+    let view = state.approval_view();
+    if view.is_some() {
+        eprintln!("nerea approve: el sondeo encontró una tarjeta");
+    }
+    Ok(view)
 }
 
 /// His answer to a pending command. One id, one answer.
