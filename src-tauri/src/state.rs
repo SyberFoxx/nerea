@@ -177,18 +177,35 @@ impl AppState {
 
     /// Builds the provider chain on first use; a missing key surfaces here.
     pub async fn ensure_provider(&self) -> Result<Arc<dyn AiProvider>, String> {
-        let mut session = self.session.lock().await;
-        if let Some(provider) = &session.provider {
-            return Ok(provider.clone());
+        // The cache check holds the lock for a `clone` and nothing else.
+        if let Some(provider) = self.session.lock().await.provider.clone() {
+            return Ok(provider);
         }
 
-        let config = Config::load().map_err(|err| err.to_string())?;
-        let keys = PlatformKeys::new(SERVICE);
-        let chain = factory::build_chain(&config, &keys, true).map_err(|err| err.to_string())?;
+        // Building the chain touches the keyring, which is a blocking D-Bus call.
+        // Doing that while holding the session mutex froze every later message on
+        // a lock nobody could release; and doing it on the async runtime blocked a
+        // worker. Both fixed here: off the lock, and off the reactor.
+        let built = tokio::time::timeout(
+            std::time::Duration::from_secs(15),
+            tokio::task::spawn_blocking(|| {
+                let config = Config::load().map_err(|err| err.to_string())?;
+                let keys = PlatformKeys::new(SERVICE);
+                factory::build_chain(&config, &keys, true).map_err(|err| err.to_string())
+            }),
+        )
+        .await
+        .map_err(|_| "el keyring no respondió en 15 segundos".to_owned())?;
 
+        let chain = match built {
+            Ok(Ok(chain)) => chain,
+            Ok(Err(err)) => return Err(err),
+            Err(err) => return Err(format!("no pude preparar el proveedor: {err}")),
+        };
+
+        let mut session = self.session.lock().await;
         session.warnings = chain.warnings;
         session.provider = Some(chain.provider.clone());
-
         Ok(chain.provider)
     }
 

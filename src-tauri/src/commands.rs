@@ -936,6 +936,7 @@ pub async fn send_message(
     if text.is_empty() {
         return Err("empty message".to_owned());
     }
+    eprintln!("nerea turn: empieza «{}»", text.chars().take(40).collect::<String>());
 
     let provider = match state.ensure_provider().await {
         Ok(provider) => provider,
@@ -1028,6 +1029,8 @@ pub async fn send_message(
         let _ = app.emit(DELTA_EVENT, Delta { text: line.to_owned() });
         reply.push_str(line);
     }
+
+    eprintln!("nerea turn: termina ({} chars)", reply.chars().count());
 
     let turns = state.finish_turn(&reply).await;
     let _ = app.emit(REPLY_EVENT, serde_json::json!({ "text": reply }));
