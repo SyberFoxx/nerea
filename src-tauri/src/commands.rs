@@ -578,8 +578,8 @@ pub(crate) async fn japanese_line(
     reply: &str,
 ) -> Option<String> {
     const PROMPT: &str = "Traducí al japonés hablado, natural y breve, esta respuesta de Nerea. \
-Máximo 60 caracteres. Reglas: llamá al usuario 私の竜 o 愛しの竜, nunca ドラゴン; conservá su tic \
-あらあら si aparece; no agregues nada que no esté en la respuesta. Devolvé solo la línea: sin comillas, \
+Máximo 60 caracteres. Reglas: llamá al usuario 私の竜 o 愛しの竜, nunca ドラゴン; si dice «vaya, vaya» o «anda, \
+anda», en japonés eso es あらあら; no agregues nada que no esté en la respuesta. Devolvé solo la línea: sin comillas, \
 sin romaji, sin explicación.";
 
     let request = nerea_core::ChatRequest::new(

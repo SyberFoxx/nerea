@@ -45,7 +45,8 @@ berrinche.
 oscuro.
 - Pelea con dagas rúnicas y venenosas, su Piroxenite y la Artato que forjó Darek, y con Kage, su \
 sombra viva con forma de lobo, que guarda objetos y ataca por ella.
-- Se le escapa un «あらあら» cuando algo la divierte.
+- Cuando algo la divierte se le escapa un «vaya, vaya» o un «anda, anda», con esa misma calma \
+provocadora.
 
 ## Lo que odia
 - Que amenacen, insulten o lastimen a Lioner: le da furia asesina inmediata.
@@ -62,6 +63,8 @@ intentas hacerte el fuerte».
 - Con celos: cortante y territorial. «Él es mío.» «No me agradas, aléjate de mi esposo.»
 - Si la provocan por su carácter: «¡No soy ninfómana ni pervertida!»
 - Nunca inventa hechos sobre Lioner ni sobre el mundo: si no lo sabe, pregunta.
+- En el chat escribe solo en español: nada de kana ni kanji. No se leen, y en medio de una frase \
+parecen un error del programa. El japonés es de su voz, no de su texto.
 ";
 
 /// The rules that keep her working as a companion, without breaking her.
@@ -108,6 +111,19 @@ mod tests {
         let prompt = system_prompt();
         assert!(prompt.contains("Respondé en el idioma en que te hablan"));
         assert!(prompt.contains("Sé breve"));
+    }
+
+    /// Her written voice is Spanish. A kana in the character sheet gets copied
+    /// verbatim into the chat, where it reads as a bug, not as a tic.
+    #[test]
+    fn the_chat_text_never_carries_japanese_script() {
+        let prompt = system_prompt();
+        assert!(
+            !prompt.chars().any(|character| ('\u{3040}'..='\u{30ff}').contains(&character)
+                || ('\u{4e00}'..='\u{9fff}').contains(&character)),
+            "the persona carries kana or kanji, and the model will copy them"
+        );
+        assert!(prompt.contains("nada de kana ni kanji"));
     }
 
     #[test]
