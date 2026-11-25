@@ -155,6 +155,10 @@ its prose. That is deliberate: with a JSON block in the prompt a flash model wou
   async-signal-safe context. Use the named pipe.
 - **The microphone is at 18 %.** The app normalises a quiet clip to a 9 000 peak before sending
   it, so the system volume does not have to be right for her to hear you.
+- **A streaming body with no idle timeout hangs the app.** The SSE request has no total timeout on
+  purpose, but a provider that stops sending used to freeze the turn forever — and the stop button
+  did nothing, because the loop was blocked waiting for a byte. Ninety seconds of silence now ends
+  the turn with a message.
 - **An event that must arrive is a hang waiting to happen.** The approval card is rendered from a
   poll (`pending_approval` every 900 ms while a turn is busy), not from `nerea://approve` alone: the
   event was emitted, the listener was registered, and the card still never appeared.

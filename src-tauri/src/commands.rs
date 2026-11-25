@@ -898,6 +898,10 @@ pub fn cancel_stream(state: tauri::State<'_, AppState>) {
 
 /// While she reads, the subtitle says what she is doing.
 const TOOL_EVENT: &str = "nerea://tool";
+/// How long the provider may stay silent before the turn is declared dead. An
+/// SSE body can legitimately stay open for minutes; a body that stops sending is
+/// a different thing, and it used to hang the app until the user gave up.
+const SILENCE_BEFORE_DEAD: std::time::Duration = std::time::Duration::from_secs(90);
 const LISTEN_EVENT: &str = "nerea://listen";
 /// What the microphone understood, so the chat can show his side of it.
 const HEARD_EVENT: &str = "nerea://heard";
@@ -1101,7 +1105,18 @@ async fn stream_reply(
     let mut cancelled = false;
     let mut calls = Vec::new();
 
-    while let Some(item) = stream.next().await {
+    loop {
+        let next = tokio::time::timeout(SILENCE_BEFORE_DEAD, stream.next()).await;
+        let item = match next {
+            Ok(Some(item)) => item,
+            Ok(None) => break,
+            Err(_) => {
+                return Err(
+                    "el proveedor se quedó callado más de 90 segundos: corté el turno".to_owned()
+                );
+            }
+        };
+
         if state.take_cancel() {
             cancelled = true;
             break;
