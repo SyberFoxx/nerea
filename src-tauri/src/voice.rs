@@ -14,8 +14,10 @@ use serde::Serialize;
 
 const DEFAULT_URL: &str = "http://127.0.0.1:9880";
 const SYNTHESIS_TIMEOUT: Duration = Duration::from_secs(30);
-/// What the small subtitle can hold.
-const SUBTITLE_CHARS: usize = 160;
+/// How much text the subtitle carries. The box clamps what it can show, so the
+/// cut here is a guard against a runaway reply, not a layout decision: at 160 a
+/// normal answer stopped mid-sentence and read like a bug.
+const SUBTITLE_CHARS: usize = 600;
 
 /// One spoken line, shaped exactly like a bank line so the UI treats it the same.
 #[derive(Debug, Clone, Serialize)]

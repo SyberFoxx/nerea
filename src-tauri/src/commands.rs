@@ -572,6 +572,64 @@ pub async fn voice_set_preference(on: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// Starts recording the microphone. The key press is the only caller.
+#[tauri::command]
+pub async fn listen_start(app: AppHandle) -> Result<(), String> {
+    crate::hearing::start()?;
+    let _ = app.emit(LISTEN_EVENT, ListenState { listening: true, error: None });
+    Ok(())
+}
+
+/// Stops recording, transcribes, and hands the sentence to the reply path.
+#[tauri::command]
+pub async fn listen_stop(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    bank: tauri::State<'_, nerea_core::PhraseBank>,
+) -> Result<String, String> {
+    listen_turn(app, state, bank).await
+}
+
+/// One push-to-talk turn, from the released key to her answer.
+pub async fn listen_turn(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    bank: tauri::State<'_, nerea_core::PhraseBank>,
+) -> Result<String, String> {
+    let _ = app.emit(LISTEN_EVENT, ListenState { listening: false, error: None });
+
+    let audio = match crate::hearing::stop() {
+        Ok(audio) => audio,
+        Err(err) => {
+            // "muy corto" and "silencio" are not failures to hide: without a word
+            // she would look like she ignored him.
+            let _ = app.emit(
+                LISTEN_EVENT,
+                ListenState { listening: false, error: Some(err.clone()) },
+            );
+            return Err(err);
+        }
+    };
+
+    let heard = crate::hearing::transcribe(audio).await?;
+    eprintln!("nerea ear: oído «{heard}»");
+    let Some(text) = nerea_core::hearing::clean(&heard) else {
+        let _ = app.emit(
+            LISTEN_EVENT,
+            ListenState { listening: false, error: Some("no te escuché".to_owned()) },
+        );
+        return Err("no te escuché".to_owned());
+    };
+
+    // The reply path is the same one the chat uses, but the chat never asked
+    // for it: without this event his words and her answer exist everywhere
+    // except on screen.
+    let _ = app.emit(HEARD_EVENT, serde_json::json!({ "text": text }));
+
+    send_message(app.clone(), state, bank, text.clone()).await?;
+    Ok(text)
+}
+
 /// The reply, said in Japanese: one small call, faithful to the Spanish text.
 pub(crate) async fn japanese_line(
     provider: &std::sync::Arc<dyn nerea_core::AiProvider>,
@@ -669,6 +727,19 @@ pub fn cancel_stream(state: tauri::State<'_, AppState>) {
 
 /// While she reads, the subtitle says what she is doing.
 const TOOL_EVENT: &str = "nerea://tool";
+const LISTEN_EVENT: &str = "nerea://listen";
+/// What the microphone understood, so the chat can show his side of it.
+const HEARD_EVENT: &str = "nerea://heard";
+/// The finished reply, whether it came from a keyboard or from the microphone.
+const REPLY_EVENT: &str = "nerea://reply";
+
+/// What the microphone is doing, and why it stopped when it stopped badly.
+#[derive(Debug, Clone, serde::Serialize)]
+struct ListenState {
+    listening: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize)]
 struct ToolNote {
@@ -776,6 +847,7 @@ pub async fn send_message(
     }
 
     let turns = state.finish_turn(&reply).await;
+    let _ = app.emit(REPLY_EVENT, serde_json::json!({ "text": reply }));
     emit_state(&app, "idle");
 
     // Her actual voice first; the bank is the fallback when the engine is off.

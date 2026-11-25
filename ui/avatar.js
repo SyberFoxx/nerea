@@ -4,6 +4,7 @@ const stage = document.getElementById("stage");
 const sprite = document.getElementById("sprite");
 const grip = document.getElementById("grip");
 const panel = document.getElementById("panel");
+const talk = document.getElementById("talk");
 const log = document.getElementById("log");
 const form = document.getElementById("composer");
 const prompt = document.getElementById("prompt");
@@ -48,6 +49,15 @@ let speaking = false;
 let toolNoteTimer = null;
 let idleTimer = null;
 let panelOpen = false;
+let listenTimer = null;
+let listening = false;
+let replyTimer = null;
+
+const LISTEN_ERRORS = {
+  "muy corto": "Muy corto: mantené un segundo más.",
+  silencio: "No hubo sonido.",
+  "no te escuché": "No te escuché, probá otra vez.",
+};
 let busy = false;
 let streamingBubble = null;
 let press = null;
@@ -136,6 +146,20 @@ function clearToolNote() {
   if (!speaking) subtitle.hidden = true;
 }
 
+/// Her answer where he is looking: the chat if it is open, and otherwise the
+/// box over her, clamped. Expanding it is the chat's job.
+function showReply(text) {
+  const answer = (text ?? "").trim();
+  if (!answer || panelOpen) return;
+
+  subtitle.textContent = answer;
+  subtitle.hidden = false;
+  clearTimeout(replyTimer);
+  replyTimer = setTimeout(() => {
+    if (!speaking) subtitle.hidden = true;
+  }, 11_000);
+}
+
 function playLine(line) {
   if (!line) return;
 
@@ -196,6 +220,9 @@ function painted() {
 async function openPanel() {
   if (panelOpen) return;
   panelOpen = true;
+
+  // Her reply lives in the chat now; a box over it would clip its own tail.
+  subtitle.hidden = true;
 
   stage.style.visibility = "hidden";
   panel.hidden = false;
@@ -352,7 +379,8 @@ function toggleMenu() {
 
 function setBusy(value) {
   busy = value;
-  sendButton.disabled = value;
+  // One button, two shapes: while she answers there is nothing to send.
+  sendButton.hidden = value;
   stopButton.hidden = !value;
   prompt.disabled = value;
   if (!value) prompt.focus();
@@ -365,11 +393,15 @@ function describe(error) {
 async function send(text) {
   addBubble("user", text);
   streamingBubble = addBubble("nerea");
+  // The class belongs to the bubble, not to the paragraph inside it: the rule
+  // that draws "pensando" is on the bubble, and it was never matching.
+  streamingBubble.parentElement.classList.add("thinking");
   setBusy(true);
 
   try {
     await invoke("send_message", { text });
   } catch (error) {
+    streamingBubble.parentElement.classList.remove("thinking");
     streamingBubble.textContent = `⚠ ${describe(error)}`;
     streamingBubble.parentElement.classList.add("failed");
   } finally {
@@ -412,13 +444,71 @@ async function start() {
   await tauri.event.listen("nerea://delta", (event) => {
     clearToolNote();
     if (!streamingBubble) return;
+    streamingBubble.parentElement.classList.remove("thinking");
     streamingBubble.textContent += event.payload.text;
     scrollToEnd();
+  });
+
+  // A message that came in through the microphone never passed through the
+  // composer, so the chat has to be told about both halves of it.
+  await tauri.event.listen("nerea://heard", (event) => {
+    const said = event.payload?.text ?? "";
+    if (!said) return;
+    addBubble("user", said);
+    streamingBubble = addBubble("nerea");
+    streamingBubble.parentElement.classList.add("thinking");
+    setBusy(true);
+    scrollToEnd();
+  });
+
+  await tauri.event.listen("nerea://reply", async (event) => {
+    const answer = event.payload?.text ?? "";
+    if (streamingBubble) {
+      streamingBubble.parentElement.classList.remove("thinking");
+      if (answer) streamingBubble.textContent = answer;
+      streamingBubble = null;
+    }
+    setBusy(false);
+
+    // He asked for the answer in the chat, not in a box: a message that came
+    // through the microphone opens it, and the transcript now holds both turns.
+    if (!panelOpen) {
+      showReply(answer);
+      await openPanel();
+    }
   });
 
   await tauri.event.listen("nerea://say", (event) => playLine(event.payload));
 
   await tauri.event.listen("nerea://tool", (event) => showToolNote(event.payload.text));
+
+  // The microphone: "Te escucho…" while the key is down, the reason when there
+  // was nothing to hear, and out of the way the rest of the time.
+  await tauri.event.listen("nerea://listen", (event) => {
+    if (talk) talk.textContent = event.payload?.listening ? "Escucho… (tocá para enviar)" : "Hablar";
+
+    const payload = event.payload ?? {};
+    clearTimeout(listenTimer);
+
+    listening = false;
+    if (payload.error) {
+      subtitle.textContent = LISTEN_ERRORS[payload.error] ?? payload.error;
+      subtitle.hidden = false;
+      listenTimer = setTimeout(() => {
+        if (!speaking) subtitle.hidden = true;
+      }, 4200);
+      return;
+    }
+
+    listening = Boolean(payload.listening);
+    if (payload.listening) {
+      subtitle.textContent = "Te escucho…";
+      subtitle.hidden = false;
+      return;
+    }
+
+    if (!speaking) subtitle.hidden = true;
+  });
 
   await tauri.event.listen("nerea://recall", () => {
     addBubble("murmur", "Me acordé de algo que hablamos hace un tiempo…");
@@ -607,6 +697,15 @@ async function start() {
       } catch (error) {
         addBubble("murmur", `No pude actualizar: ${describe(error)}`);
       }
+      return;
+    }
+
+    // The microphone, without a compositor keybind: one press to listen, the
+    // next to send. The label says which one the next press will do.
+    if (action === "talk") {
+      hideMenu();
+      if (listening) await invoke("listen_stop").catch(() => {});
+      else await invoke("listen_start").catch(() => {});
       return;
     }
 

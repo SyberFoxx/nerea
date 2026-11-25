@@ -16,6 +16,7 @@
         </header>
 
         <nav id="menu" class="menu" hidden>
+          <button type="button" data-action="talk" id="talk" class="first">Hablar</button>
           <button type="button" data-action="history">Historial completo</button>
           <button type="button" data-action="dock">Anclar a la ventana</button>
           <button type="button" data-action="reset">Borrar memoria</button>
@@ -31,8 +32,18 @@
         <form id="composer" class="composer">
           <label class="sr-only" for="prompt">Mensaje</label>
           <input id="prompt" type="text" placeholder="Decile algo…" autocomplete="off" />
-          <button id="send" class="send" type="submit" title="Enviar">↵</button>
-          <button id="stop" class="icon" type="button" title="Detener" hidden>■</button>
+          <button id="send" class="send" type="submit" title="Enviar" aria-label="Enviar">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 19V5m0 0l-6 6m6-6l6 6" fill="none" stroke="currentColor"
+                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
+          <button id="stop" class="send stop" type="button" title="Detener" aria-label="Detener"
+                  hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" />
+            </svg>
+          </button>
         </form>
       </section>
 

@@ -8,6 +8,7 @@ pub mod config;
 pub mod conversation;
 pub mod error;
 pub mod factory;
+pub mod hearing;
 pub mod memory;
 pub mod paths;
 pub mod persona;

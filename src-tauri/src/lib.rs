@@ -1,5 +1,7 @@
 mod commands;
+mod control;
 mod engine;
+mod hearing;
 mod hypr;
 mod state;
 mod update;
@@ -14,6 +16,7 @@ pub fn farewell_and_exit(app: tauri::AppHandle) {
         let hold = commands::farewell(&app).unwrap_or(1400) + 900;
         tokio::time::sleep(std::time::Duration::from_millis(hold)).await;
         engine::stop();
+        hearing::stop_engine();
         app.exit(0);
     });
 }
@@ -38,6 +41,7 @@ pub fn run() {
                 loop {
                     tokio::time::sleep(std::time::Duration::from_secs(60)).await;
                     engine::reap();
+                    hearing::reap();
                 }
             });
 
@@ -159,6 +163,32 @@ pub fn run() {
 
             // Sends one message by itself: the only way to exercise the whole
             // reply path (tools included) without a pointer.
+            // The way in from outside: a named pipe, because signals in a
+            // process that embeds WebKit end in a SIGSEGV inside JavaScriptCore.
+            control::start(app.handle().clone());
+
+            // Development aid: one push-to-talk turn by itself, so the whole
+            // path runs without a key.
+            if let Ok(ms) = std::env::var("NEREA_LISTEN_MS") {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let ms: u64 = ms.parse().unwrap_or(3000);
+                    tokio::time::sleep(std::time::Duration::from_millis(3000)).await;
+                    if let Err(err) = commands::listen_start(handle.clone()).await {
+                        eprintln!("nerea ear: {err}");
+                        return;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+
+                    let state = handle.state::<state::AppState>();
+                    let bank = handle.state::<nerea_core::PhraseBank>();
+                    match commands::listen_turn(handle.clone(), state, bank).await {
+                        Ok(text) => eprintln!("nerea ear: escuché «{text}»"),
+                        Err(err) => eprintln!("nerea ear: {err}"),
+                    }
+                });
+            }
+
             if let Ok(ask) = std::env::var("NEREA_ASK") {
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
@@ -204,6 +234,8 @@ pub fn run() {
             commands::voice_state,
             commands::voice_preference,
             commands::voice_set_preference,
+            commands::listen_start,
+            commands::listen_stop,
         ])
         .build(tauri::generate_context!());
 
