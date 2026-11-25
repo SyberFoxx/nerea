@@ -5,6 +5,8 @@ const sprite = document.getElementById("sprite");
 const grip = document.getElementById("grip");
 const panel = document.getElementById("panel");
 const talk = document.getElementById("talk");
+const pendingBlock = document.getElementById("pending");
+const pendingList = document.getElementById("pending-list");
 const log = document.getElementById("log");
 const form = document.getElementById("composer");
 const prompt = document.getElementById("prompt");
@@ -216,6 +218,69 @@ function painted() {
   });
 }
 
+/// What she proposed and nobody approved. The diff is the whole point: a card
+/// with a path and a button would be a card nobody read.
+async function loadPending() {
+  if (!pendingBlock || !pendingList) return;
+
+  const changes = await invoke("pending_changes").catch(() => []);
+  pendingList.replaceChildren();
+  pendingBlock.hidden = changes.length === 0;
+  if (changes.length === 0) return;
+
+  for (const change of changes) {
+    const card = document.createElement("article");
+    card.className = "change";
+
+    const head = document.createElement("header");
+    head.className = "change-head";
+
+    const name = document.createElement("strong");
+    name.title = change.path;
+    name.textContent = change.path.split("/").slice(-2).join("/");
+
+    const kind = document.createElement("span");
+    kind.className = "change-kind";
+    kind.textContent = `${change.kind} · +${change.added} −${change.removed}`;
+
+    head.append(name, kind);
+
+    const diff = document.createElement("pre");
+    diff.className = "change-diff";
+    diff.textContent = change.preview;
+
+    const actions = document.createElement("div");
+    actions.className = "change-actions";
+
+    const apply = document.createElement("button");
+    apply.type = "button";
+    apply.className = "change-apply";
+    apply.textContent = "Aplicar";
+
+    const discard = document.createElement("button");
+    discard.type = "button";
+    discard.className = "change-discard";
+    discard.textContent = "Descartar";
+
+    apply.addEventListener("click", async () => {
+      apply.disabled = true;
+      const said = await invoke("apply_change", { id: change.id }).catch((error) => `⚠ ${describe(error)}`);
+      addBubble("murmur", said);
+      await loadPending();
+    });
+
+    discard.addEventListener("click", async () => {
+      discard.disabled = true;
+      await invoke("discard_change", { id: change.id }).catch(() => {});
+      await loadPending();
+    });
+
+    actions.append(apply, discard);
+    card.append(head, diff, actions);
+    pendingList.append(card);
+  }
+}
+
 /** Opens the chat: the window grows around her, she does not move. */
 async function openPanel() {
   if (panelOpen) return;
@@ -232,6 +297,7 @@ async function openPanel() {
   stage.style.visibility = "visible";
 
   await loadRecent();
+  await loadPending();
   await askAboutVoice();
   prompt.focus();
   noteActivity();
@@ -470,6 +536,10 @@ async function start() {
     }
     setBusy(false);
 
+    // A tool may have staged a proposal during this turn; the cards are the only
+    // place it can be approved, so they are refreshed on every answer.
+    await loadPending();
+
     // He asked for the answer in the chat, not in a box: a message that came
     // through the microphone opens it, and the transcript now holds both turns.
     if (!panelOpen) {
@@ -477,6 +547,8 @@ async function start() {
       await openPanel();
     }
   });
+
+  await tauri.event.listen("nerea://pending", () => loadPending());
 
   await tauri.event.listen("nerea://say", (event) => playLine(event.payload));
 

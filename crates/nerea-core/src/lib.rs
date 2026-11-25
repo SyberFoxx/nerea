@@ -4,6 +4,7 @@
 
 pub mod ai;
 pub mod cards;
+pub mod changes;
 pub mod config;
 pub mod conversation;
 pub mod error;
@@ -26,6 +27,7 @@ pub use ai::{
     AiProvider, ChatMessage, ChatRequest, ChatResponse, ChatStream, Role, StreamItem, ToolCall,
     ToolSpec, Usage,
 };
+pub use changes::{Change, Kind};
 pub use config::{Config, Fallback, Voice};
 pub use factory::{BuildError, Chain, KeySource, KeyState, PlatformKeys};
 pub use memory::{Memory, MemoryStore};

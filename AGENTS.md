@@ -25,7 +25,7 @@ tools/voice           machine-local, gitignored: venv + GPT-SoVITS weights (~11 
 ```bash
 cargo build -p nerea-desktop                 # debug build
 cargo run -p nerea-desktop                   # the app
-cargo test                                   # 166 tests, no network
+cargo test                                   # 179 tests, no network
 cargo clippy --all-targets -- -D warnings
 node --check ui/avatar.js && node --check ui/main.js
 
@@ -70,6 +70,11 @@ its prose. That is deliberate: with a JSON block in the prompt a flash model wou
   around them. `~/.ssh`, `~/.gnupg`, `~/.pki`, the browser profiles, her own data and config
   dirs, `/etc/shadow`, `/proc`, `/sys` and credential-shaped names (`id_rsa`, `.env`, `*.pem`,
   `*.key`) are never readable.
+- `write_file` and `edit_file` do **not** write: they stage a proposal in `~/.local/share/nerea/pending/`
+  and the change waits for a click. `apply_change` is the only path to a real file, it is a Tauri
+  command the page calls, and the model has no route to it. The original is copied to
+  `~/.local/share/nerea/backups/` first; an edit whose fragment matches twice is refused; a target
+  that changed under the proposal is refused.
 - `processes`, `system`, `services` and `logs` read the machine's vitals: `/proc` directly,
   plus `systemctl --failed` and `journalctl` with fixed arguments. Read-only, no shell, no command
   assembled from model text. `processes` sees every process; `limit` decides how many come back.
@@ -143,6 +148,12 @@ its prose. That is deliberate: with a JSON block in the prompt a flash model wou
   async-signal-safe context. Use the named pipe.
 - **The microphone is at 18 %.** The app normalises a quiet clip to a 9 000 peak before sending
   it, so the system volume does not have to be right for her to hear you.
+- **`cargo build` does not always re-embed `ui/`.** A UI change can compile green and never reach the
+  binary; `cargo clean -p nerea-desktop` forces it. The assets are compressed, so `strings` will not
+  tell you either — test the page, not the file.
+- **A Python `replace` that finds nothing is silent.** Twice in one session a UI patch was "applied"
+  and never existed: the anchor text belonged to another file. Assert the change (`grep` the result)
+  after every scripted edit.
 - **Never restrict the tools to force an answer.** With an empty `tools` array, and even with
   `tool_choice: "none"`, this model writes its own `<｜DSML｜ …>` call syntax into the prose and
   it reaches the chat (both measured on `deepseek-v4.1-flash`). Keep the tools declared and free;

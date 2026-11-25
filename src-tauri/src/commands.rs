@@ -572,6 +572,55 @@ pub async fn voice_set_preference(on: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// One proposal, shaped for the card that asks for approval.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PendingChange {
+    id: String,
+    path: String,
+    kind: &'static str,
+    at: u64,
+    added: usize,
+    removed: usize,
+    preview: String,
+}
+
+/// What she proposed and nobody approved yet. Read-only.
+#[tauri::command]
+pub async fn pending_changes() -> Result<Vec<PendingChange>, String> {
+    Ok(nerea_core::changes::list()
+        .into_iter()
+        .map(|change| {
+            let (added, removed) = change.counts();
+            let preview = change.preview();
+            PendingChange {
+                id: change.id,
+                path: change.path,
+                kind: change.kind.label(),
+                at: change.at,
+                added,
+                removed,
+                preview,
+            }
+        })
+        .collect())
+}
+
+/// The only path from a proposal to a real file, and it needs a human click.
+#[tauri::command]
+pub async fn apply_change(app: AppHandle, id: String) -> Result<String, String> {
+    let said = nerea_core::changes::apply(&id)?;
+    let _ = app.emit(REPLY_EVENT, serde_json::json!({ "text": said, "silent": true }));
+    let _ = app.emit(PENDING_EVENT, true);
+    Ok(said)
+}
+
+#[tauri::command]
+pub async fn discard_change(app: AppHandle, id: String) -> Result<(), String> {
+    nerea_core::changes::discard(&id)?;
+    let _ = app.emit(PENDING_EVENT, true);
+    Ok(())
+}
+
 /// Starts recording the microphone. The key press is the only caller.
 #[tauri::command]
 pub async fn listen_start(app: AppHandle) -> Result<(), String> {
@@ -732,6 +781,8 @@ const LISTEN_EVENT: &str = "nerea://listen";
 const HEARD_EVENT: &str = "nerea://heard";
 /// The finished reply, whether it came from a keyboard or from the microphone.
 const REPLY_EVENT: &str = "nerea://reply";
+/// Something was proposed, applied or discarded: the cards refresh.
+const PENDING_EVENT: &str = "nerea://pending";
 
 /// What the microphone is doing, and why it stopped when it stopped badly.
 #[derive(Debug, Clone, serde::Serialize)]

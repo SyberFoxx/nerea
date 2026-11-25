@@ -315,6 +315,103 @@ body {
   color: #f3c7c7;
 }
 
+.pending {
+  flex: 0 0 auto;
+  max-height: 210px;
+  overflow-y: auto;
+  border: 1px solid #4a3a22;
+  border-left: 2px solid #d9a441;
+  border-radius: 9px;
+  padding: 8px 10px;
+  background: #1b1710;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.pending h2 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #d9a441;
+}
+
+.change + .change {
+  margin-top: 8px;
+  border-top: 1px solid #33291a;
+  padding-top: 8px;
+}
+
+.change-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.change-head strong {
+  font-size: 12.5px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.change-kind {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: #b89a6a;
+  font-variant-numeric: tabular-nums;
+}
+
+.change-diff {
+  margin: 6px 0;
+  padding: 6px 8px;
+  max-height: 96px;
+  overflow: auto;
+  border-radius: 6px;
+  background: #120f0a;
+  color: #cbd5db;
+  font-family: ui-monospace, "JetBrains Mono", monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre;
+  user-select: text;
+}
+
+.change-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.change-actions button {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel-soft);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.change-apply {
+  border-color: #2f6a52;
+  background: #12312a;
+  color: #8fe0bd;
+}
+
+.change-apply:hover {
+  border-color: #4fae86;
+}
+
+.change-discard:hover {
+  border-color: #7a4a4a;
+  color: #f0b4b4;
+}
+
 .composer {
   display: flex;
   align-items: center;

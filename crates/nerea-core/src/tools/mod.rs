@@ -20,6 +20,7 @@ use serde_json::{Value, json};
 
 use crate::ai::{ToolCall, ToolSpec};
 use crate::cards::{self, Kept};
+use crate::changes;
 
 /// She looks, reads what she found, and answers. Three rounds in total: the
 /// last one is the answer, so each round before it can ask for files.
@@ -157,6 +158,51 @@ of listing folder after folder."
             }),
         },
         ToolSpec {
+            name: "write_file".to_owned(),
+            description: "Propose writing a whole file: new, or replacing an existing one. It \
+does NOT write by itself — the change waits for Lioner to approve it in the chat, and he sees \
+the diff first. Use it when he asks you to create or rewrite a file."
+                .to_owned(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Absolute path, or one starting with ~"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "The complete new content of the file"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "One line for him: why this change"
+                    }
+                },
+                "required": ["path", "content"]
+            }),
+        },
+        ToolSpec {
+            name: "edit_file".to_owned(),
+            description: "Propose replacing one exact fragment of an existing file. The fragment \
+must appear exactly once. It does NOT write by itself: the diff waits for Lioner's approval in \
+the chat."
+                .to_owned(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Absolute path, or one starting with ~" },
+                    "find": {
+                        "type": "string",
+                        "description": "The exact text to replace, unique in the file"
+                    },
+                    "replace": { "type": "string", "description": "What takes its place" },
+                    "reason": { "type": "string", "description": "One line for him: why" }
+                },
+                "required": ["path", "find", "replace"]
+            }),
+        },
+        ToolSpec {
             name: "processes".to_owned(),
             description: "List the processes running on the machine, with CPU and memory. \
 Read-only: it never starts, stops or signals anything. Sorted by memory by default; use \
@@ -274,6 +320,8 @@ pub fn describe(call: &ToolCall) -> String {
         }
         "find" => format!("buscando el archivo «{}»", cut(text("pattern"), 40)),
         "remember" => format!("anotando en «{}»", cut(text("topic"), 30)),
+        "write_file" => format!("proponiendo escribir {}", short_path(text("path"))),
+        "edit_file" => format!("proponiendo un cambio en {}", short_path(text("path"))),
         "processes" => "mirando los procesos".to_owned(),
         "system" => "mirando la salud de la máquina".to_owned(),
         "services" => "mirando los servicios".to_owned(),
@@ -336,6 +384,8 @@ pub fn run(call: &ToolCall) -> ToolOutcome {
         "list_dir" => list_dir(&args),
         "search" => search(&args),
         "find" => find(&args),
+        "write_file" => propose_write(&args),
+        "edit_file" => propose_edit(&args),
         "processes" => {
             let limit = number_arg(&args, "limit").unwrap_or(30);
             let sort = system::Sort::parse(args.get("sort").and_then(Value::as_str).unwrap_or("mem"));
@@ -350,7 +400,7 @@ pub fn run(call: &ToolCall) -> ToolOutcome {
         "remember" => keep(&args, &cards::dir()),
         other => Err(format!(
             "no tengo una herramienta llamada «{other}». Tengo read_file, list_dir, search, find, \
-remember, processes, system, services y logs"
+remember, processes, system, services, logs, write_file y edit_file"
         )),
     };
 
@@ -640,6 +690,31 @@ fn find(args: &Value) -> Result<String, String> {
     let mut out = format!("{} con «{pattern}» en {}:\n", found.len(), root.display());
     out.push_str(&found.join("\n"));
     Ok(clip(out))
+}
+
+/// Stages a whole-file write. Nothing touches the target until he approves.
+fn propose_write(args: &Value) -> Result<String, String> {
+    let path = string_arg(args, "path")?;
+    let content = string_arg(args, "content")?;
+    let change = changes::stage(path, content)?;
+
+    Ok(format!(
+        "Propuesta {} lista (todavía no escribí nada): {}. Espera que Lioner la apruebe en el chat.",
+        change.id, change.path
+    ))
+}
+
+fn propose_edit(args: &Value) -> Result<String, String> {
+    let path = string_arg(args, "path")?;
+    let find = string_arg(args, "find")?;
+    let replace = string_arg(args, "replace")?;
+    let change = changes::edit(path, find, replace)?;
+
+    Ok(format!(
+        "Propuesta {} lista (todavía no escribí nada): cambio en {}. Espera que Lioner lo apruebe \
+en el chat.",
+        change.id, change.path
+    ))
 }
 
 /// The only writing tool, and it takes no path: the file name comes from a

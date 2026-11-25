@@ -167,6 +167,11 @@ pub fn run() {
             // process that embeds WebKit end in a SIGSEGV inside JavaScriptCore.
             control::start(app.handle().clone());
 
+            // Development aid: how many proposals the core sees at boot.
+            if std::env::var_os("NEREA_PENDING_TEST").is_some() {
+                eprintln!("nerea pending: {} propuestas", nerea_core::changes::list().len());
+            }
+
             // Development aid: one push-to-talk turn by itself, so the whole
             // path runs without a key.
             if let Ok(ms) = std::env::var("NEREA_LISTEN_MS") {
@@ -234,6 +239,9 @@ pub fn run() {
             commands::voice_state,
             commands::voice_preference,
             commands::voice_set_preference,
+            commands::pending_changes,
+            commands::apply_change,
+            commands::discard_change,
             commands::listen_start,
             commands::listen_stop,
         ])

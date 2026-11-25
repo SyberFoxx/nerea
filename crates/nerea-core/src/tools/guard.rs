@@ -32,6 +32,40 @@ pub fn resolve(input: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+/// Resolves a path that does not exist yet, by canonicalising its folder.
+///
+/// Writing is a bigger step than reading, so this is the strict version: the
+/// folder has to exist (creating a tree is not this feature), and the rules run
+/// on the resolved path just the same.
+pub fn resolve_for_write(input: &str) -> Result<PathBuf, String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err("falta la ruta".to_owned());
+    }
+
+    let expanded = expand(trimmed);
+    let absolute = if expanded.is_absolute() {
+        expanded
+    } else {
+        std::env::current_dir().map_err(|err| err.to_string())?.join(expanded)
+    };
+
+    let name = absolute
+        .file_name()
+        .ok_or_else(|| format!("«{trimmed}» no es un archivo"))?
+        .to_owned();
+    let parent = absolute
+        .parent()
+        .ok_or_else(|| format!("«{trimmed}» no tiene carpeta"))?;
+
+    let folder = parent
+        .canonicalize()
+        .map_err(|_| format!("no encuentro la carpeta de «{trimmed}»"))?;
+    let path = folder.join(name);
+    deny(&path)?;
+    Ok(path)
+}
+
 /// The rules, on an already resolved path.
 pub fn deny(path: &Path) -> Result<(), String> {
     if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
@@ -161,6 +195,29 @@ mod tests {
 
         let err = resolve(link.to_str().expect("utf8")).expect_err("must refuse");
         assert!(err.contains("protegido") || err.contains("credenciales"), "{err}");
+    }
+
+    #[test]
+    fn a_file_that_does_not_exist_yet_still_resolves_for_writing() {
+        let dir = scratch("write-new");
+        let target = dir.join("nuevo.txt");
+        let resolved = resolve_for_write(target.to_str().expect("path")).expect("allowed");
+
+        assert_eq!(resolved.file_name().and_then(|name| name.to_str()), Some("nuevo.txt"));
+        assert!(!resolved.exists(), "resolver no crea nada");
+    }
+
+    #[test]
+    fn writing_into_a_protected_folder_is_refused() {
+        let ssh = home().join(".ssh").join("config");
+        let err = resolve_for_write(ssh.to_str().expect("path")).expect_err("must refuse");
+        assert!(err.contains("protegido") || err.contains("credenciales"), "{err}");
+    }
+
+    #[test]
+    fn writing_into_a_folder_that_does_not_exist_is_refused() {
+        let err = resolve_for_write("/no/existe/esta/carpeta/archivo.txt").expect_err("must refuse");
+        assert!(err.contains("no encuentro la carpeta"), "{err}");
     }
 
     #[test]
