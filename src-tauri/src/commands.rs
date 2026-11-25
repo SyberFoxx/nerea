@@ -584,15 +584,12 @@ pub struct PendingChange {
     preview: String,
 }
 
-/// What the approval card shows: the exact argv, and why it matters.
-#[derive(Debug, Clone, serde::Serialize)]
-struct Approval {
-    id: u64,
-    program: String,
-    args: Vec<String>,
-    cwd: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    warning: Option<&'static str>,
+/// What the page asks for once a second while a turn is busy.
+#[tauri::command]
+pub async fn pending_approval(
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<serde_json::Value>, String> {
+    Ok(state.approval_view())
 }
 
 /// His answer to a pending command. One id, one answer.
@@ -645,25 +642,27 @@ async fn run_command_tool(
         true
     } else {
         let (id, receiver) = state.request_approval();
-        // The card has to be visible: a turn that waits for a click he cannot
-        // see is a turn that hangs. Opening the chat is the smallest fix.
+        let view = serde_json::json!({
+            "id": id,
+            "program": planned.program,
+            "args": planned.args,
+            "cwd": planned.cwd.display().to_string(),
+            "warning": nerea_core::exec::warning(&planned.program),
+        });
+
+        // Two ways to the same card: the event, and the poll the page runs while
+        // it is busy. The event alone failed once too often.
+        state.show_approval(Some(view.clone()));
         let _ = app.emit("nerea://panel", true);
-        let _ = app.emit(
-            APPROVE_EVENT,
-            Approval {
-                id,
-                program: planned.program.clone(),
-                args: planned.args.clone(),
-                cwd: planned.cwd.display().to_string(),
-                warning: nerea_core::exec::warning(&planned.program),
-            },
-        );
+        let _ = app.emit(APPROVE_EVENT, view);
 
         match tokio::time::timeout(std::time::Duration::from_secs(180), receiver).await {
             Ok(Ok(answer)) => answer,
             _ => false,
         }
     };
+
+    state.show_approval(None);
 
     if !approved {
         let observation = format!("Lioner no aprobó `{}`: no lo ejecuté.", planned.program);

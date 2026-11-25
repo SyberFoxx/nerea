@@ -167,6 +167,26 @@ pub fn run() {
             // process that embeds WebKit end in a SIGSEGV inside JavaScriptCore.
             control::start(app.handle().clone());
 
+            // Development aid: draw the approval card without a model.
+            if std::env::var_os("NEREA_APPROVE_TEST").is_some() {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(3000)).await;
+                    let _ = handle.emit("nerea://panel", true);
+                    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+                    let _ = handle.emit(
+                        "nerea://approve",
+                        serde_json::json!({
+                            "id": 999,
+                            "program": "playerctl",
+                            "args": ["next"],
+                            "cwd": "/home/ramses",
+                            "warning": null
+                        }),
+                    );
+                });
+            }
+
             // Development aid: how many proposals the core sees at boot.
             if std::env::var_os("NEREA_PENDING_TEST").is_some() {
                 eprintln!("nerea pending: {} propuestas", nerea_core::changes::list().len());
@@ -240,6 +260,7 @@ pub fn run() {
             commands::voice_preference,
             commands::voice_set_preference,
             commands::answer_approval,
+            commands::pending_approval,
             commands::pending_changes,
             commands::apply_change,
             commands::discard_change,

@@ -96,6 +96,9 @@ pub struct AppState {
     /// Commands waiting for his click, by id.
     approvals: Arc<std::sync::Mutex<std::collections::HashMap<u64, tokio::sync::oneshot::Sender<bool>>>>,
     approval_seq: Arc<std::sync::atomic::AtomicU64>,
+    /// The card the page polls for. An event that never arrives is a turn that
+    /// hangs; asking again every second cannot be missed.
+    approval_view: Arc<std::sync::Mutex<Option<serde_json::Value>>>,
     cancel: Arc<AtomicBool>,
     transcript: Arc<Transcript>,
     memory_store: Arc<MemoryStore>,
@@ -165,6 +168,7 @@ impl AppState {
             cancel: Arc::new(AtomicBool::new(false)),
             approvals: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             approval_seq: Arc::new(std::sync::atomic::AtomicU64::new(1)),
+            approval_view: Arc::new(std::sync::Mutex::new(None)),
             transcript,
             memory_store,
             restored: Arc::new(AtomicUsize::new(restored.len())),
@@ -222,6 +226,16 @@ impl AppState {
             map.insert(id, sender);
         }
         (id, receiver)
+    }
+
+    pub fn show_approval(&self, view: Option<serde_json::Value>) {
+        if let Ok(mut slot) = self.approval_view.lock() {
+            *slot = view;
+        }
+    }
+
+    pub fn approval_view(&self) -> Option<serde_json::Value> {
+        self.approval_view.lock().ok().and_then(|slot| slot.clone())
     }
 
     /// The click. A second answer for the same id is ignored.

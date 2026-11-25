@@ -155,6 +155,9 @@ its prose. That is deliberate: with a JSON block in the prompt a flash model wou
   async-signal-safe context. Use the named pipe.
 - **The microphone is at 18 %.** The app normalises a quiet clip to a 9 000 peak before sending
   it, so the system volume does not have to be right for her to hear you.
+- **An event that must arrive is a hang waiting to happen.** The approval card is rendered from a
+  poll (`pending_approval` every 900 ms while a turn is busy), not from `nerea://approve` alone: the
+  event was emitted, the listener was registered, and the card still never appeared.
 - **A blocked turn looks like a hang.** `run_command` waits up to 180 s for a click; when the panel
   was closed, the card existed nowhere visible. The approval emits `nerea://panel` first.
 - **`cargo build` does not always re-embed `ui/`.** A UI change can compile green and never reach the

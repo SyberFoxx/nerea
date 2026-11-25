@@ -56,6 +56,8 @@ let panelOpen = false;
 let listenTimer = null;
 let listening = false;
 let replyTimer = null;
+let workingLine = null;
+let approvalPoll = null;
 
 const LISTEN_ERRORS = {
   "muy corto": "Muy corto: mantené un segundo más.",
@@ -84,6 +86,24 @@ function show(name) {
 
 function scrollToEnd() {
   log.scrollTop = log.scrollHeight;
+}
+
+/// One line that says what is happening right now: thinking, running a program,
+/// or waiting for his click. Without it a blocked turn looks like a dead chat.
+function setWorking(text) {
+  if (!text) {
+    workingLine?.remove();
+    workingLine = null;
+    return;
+  }
+
+  if (!workingLine) {
+    workingLine = document.createElement("p");
+    workingLine.className = "working";
+    log.append(workingLine);
+  }
+  workingLine.textContent = text;
+  scrollToEnd();
 }
 
 function addBubble(role, text = "") {
@@ -447,6 +467,8 @@ function toggleMenu() {
 
 function setBusy(value) {
   busy = value;
+  clearInterval(approvalPoll);
+  if (value) approvalPoll = setInterval(checkApproval, 900);
   // One button, two shapes: while she answers there is nothing to send.
   sendButton.hidden = value;
   stopButton.hidden = !value;
@@ -464,6 +486,7 @@ async function send(text) {
   // The class belongs to the bubble, not to the paragraph inside it: the rule
   // that draws "pensando" is on the bubble, and it was never matching.
   streamingBubble.parentElement.classList.add("thinking");
+  setWorking("pensando…");
   setBusy(true);
 
   try {
@@ -556,7 +579,10 @@ async function start() {
 
   await tauri.event.listen("nerea://say", (event) => playLine(event.payload));
 
-  await tauri.event.listen("nerea://tool", (event) => showToolNote(event.payload.text));
+  await tauri.event.listen("nerea://tool", (event) => {
+    setWorking(event.payload.text);
+    showToolNote(event.payload.text);
+  });
 
   // The microphone: "Te escucho…" while the key is down, the reason when there
   // was nothing to hear, and out of the way the rest of the time.
