@@ -1096,8 +1096,13 @@ async fn stream_reply(
 ) -> Result<Streamed, String> {
     use futures::StreamExt;
 
-    let mut stream =
-        provider.stream_chat_completion(request).await.map_err(|err| err.to_string())?;
+    let head = tokio::time::timeout(
+        std::time::Duration::from_secs(60),
+        provider.stream_chat_completion(request),
+    )
+    .await
+    .map_err(|_| "el proveedor no respondió ni la cabecera en 60 segundos".to_owned())?;
+    let mut stream = head.map_err(|err| err.to_string())?;
 
     emit_state(app, "thinking");
 
