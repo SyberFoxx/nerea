@@ -1,5 +1,17 @@
 const tauri = window.__TAURI__;
 
+// An exception inside a handler used to leave the chat saying "pensando" with no
+// explanation. Now it says what broke, in the chat, where it can be read.
+window.addEventListener("error", (event) => {
+  const message = event?.message ?? "error desconocido";
+  const log = document.getElementById("log");
+  if (!log) return;
+  const line = document.createElement("p");
+  line.className = "bubble failed";
+  line.textContent = `⚠ ${message}`;
+  log.append(line);
+});
+
 const stage = document.getElementById("stage");
 const sprite = document.getElementById("sprite");
 const grip = document.getElementById("grip");
@@ -86,6 +98,15 @@ function show(name) {
 
 function scrollToEnd() {
   log.scrollTop = log.scrollHeight;
+}
+
+/// Asks the app whether a command is waiting for a click. The event usually
+/// arrives; this is what makes the card impossible to miss.
+async function checkApproval() {
+  const pending = await invoke("pending_approval").catch(() => null);
+  if (!pending) return;
+  if (approveBlock && !approveBlock.hidden) return;
+  showApproval(pending);
 }
 
 /// One line that says what is happening right now: thinking, running a program,

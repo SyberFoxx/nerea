@@ -163,6 +163,10 @@ its prose. That is deliberate: with a JSON block in the prompt a flash model wou
   purpose, but a provider that stops sending used to freeze the turn forever — and the stop button
   did nothing, because the loop was blocked waiting for a byte. Ninety seconds of silence now ends
   the turn with a message.
+- **A missing function in the UI looks exactly like a hung turn.** `setBusy` called
+  `setInterval(checkApproval, …)` before `checkApproval` existed: the ReferenceError aborted
+  `send()` before `invoke`, so the chat said "pensando" while nothing reached Rust — no log, no
+  transcript, nothing. A `window.onerror` handler now prints a JavaScript failure in the chat.
 - **An event that must arrive is a hang waiting to happen.** The approval card is rendered from a
   poll (`pending_approval` every 900 ms while a turn is busy), not from `nerea://approve` alone: the
   event was emitted, the listener was registered, and the card still never appeared.
