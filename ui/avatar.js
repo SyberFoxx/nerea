@@ -126,23 +126,35 @@ function showApproval(request) {
   allow.className = "change-apply";
   allow.textContent = "Permitir";
 
+  const always = document.createElement("button");
+  always.type = "button";
+  always.className = "change-always";
+  always.textContent = "Siempre";
+  always.title = "No me preguntes otra vez por este comando exacto";
+
   const deny = document.createElement("button");
   deny.type = "button";
   deny.className = "change-discard";
   deny.textContent = "Denegar";
 
-  const answer = async (approved) => {
+  const answer = async (approved, remember) => {
     allow.disabled = true;
+    always.disabled = true;
     deny.disabled = true;
     approveBlock.hidden = true;
     setWorking(approved ? "ejecutando…" : "denegado");
-    await invoke("answer_approval", { id: request.id, approved }).catch(() => {});
+    await invoke("answer_approval", {
+      id: request.id,
+      approved,
+      always: Boolean(remember),
+    }).catch(() => {});
   };
 
-  allow.addEventListener("click", () => answer(true));
-  deny.addEventListener("click", () => answer(false));
+  allow.addEventListener("click", () => answer(true, false));
+  always.addEventListener("click", () => answer(true, true));
+  deny.addEventListener("click", () => answer(false, false));
 
-  actions.append(allow, deny);
+  actions.append(allow, always, deny);
   approveBody.append(head, cwd);
 
   if (request.warning) {
@@ -547,6 +559,8 @@ function toggleMenu() {
 
 function setBusy(value) {
   busy = value;
+  // Whatever the turn was doing, it is not doing it any more.
+  if (!value) setWorking(null);
   clearInterval(approvalPoll);
   if (value) approvalPoll = setInterval(checkApproval, 900);
   // One button, two shapes: while she answers there is nothing to send.

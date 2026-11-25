@@ -25,7 +25,7 @@ tools/voice           machine-local, gitignored: venv + GPT-SoVITS weights (~11 
 ```bash
 cargo build -p nerea-desktop                 # debug build
 cargo run -p nerea-desktop                   # the app
-cargo test                                   # 197 tests, no network
+cargo test                                   # 199 tests, no network
 cargo clippy --all-targets -- -D warnings
 node --check ui/avatar.js && node --check ui/main.js
 
@@ -211,6 +211,7 @@ and `NEREA_TTS_PYTHON` tune the engine.
 | `NEREA_SUMMARIZE_NOW=1` | force one summary |
 | `NEREA_RECALL_QUERY="…"` | print what recall would send |
 | `NEREA_CARDS_QUERY="…"` | print the cards a message would carry |
+| `~/.config/nerea/tools.toml` `trust` | commands approved with "Siempre", by exact fingerprint |
 | `NEREA_AUTO_APPROVE=1` | skips the approval card for `run_command`. **Never in normal use** |
 | `NEREA_MCP_URL=…` | override the context7 endpoint |
 | `NEREA_LISTEN_MS=3000` | one push-to-talk turn by itself: record 3 s, transcribe, answer |

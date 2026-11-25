@@ -61,6 +61,10 @@ pub struct Tools {
     /// Seconds a single command may take.
     #[serde(default = "default_timeout")]
     pub timeout_secs: u64,
+    /// Commands he said "always" to, by exact fingerprint. Never a program:
+    /// `playerctl next` is not `playerctl`.
+    #[serde(default)]
+    pub trust: Vec<String>,
 }
 
 fn default_timeout() -> u64 {
@@ -105,6 +109,7 @@ impl Tools {
                 "/tmp".to_owned(),
             ],
             timeout_secs: DEFAULT_TIMEOUT_SECS,
+            trust: Vec::new(),
         }
     }
 
@@ -137,6 +142,20 @@ impl Tools {
         self.roots.iter().map(|root| expand(root)).filter(|root| root.exists()).collect()
     }
 
+    /// The key a "always" click writes: the program and its exact arguments.
+    pub fn trusts(&self, key: &str) -> bool {
+        self.trust.iter().any(|trusted| trusted == key)
+    }
+
+    fn persist(&self) -> Result<(), String> {
+        let path = config_path();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+        }
+        let text = toml::to_string_pretty(self).map_err(|err| err.to_string())?;
+        std::fs::write(&path, text).map_err(|err| err.to_string())
+    }
+
     pub fn timeout(&self) -> Duration {
         Duration::from_secs(self.timeout_secs.clamp(1, 600))
     }
@@ -149,6 +168,29 @@ fn config_path() -> PathBuf {
             PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".to_owned())).join(".config")
         });
     base.join("nerea").join("tools.toml")
+}
+
+/// `program|arg|arg` — stable across runs, and narrow on purpose.
+pub fn fingerprint(program: &str, args: &[String]) -> String {
+    let mut out = program.to_owned();
+    for arg in args {
+        out.push('|');
+        out.push_str(arg);
+    }
+    out
+}
+
+/// Remembers one command so the card does not ask again.
+pub fn remember_command(key: &str) -> Result<(), String> {
+    if key.trim().is_empty() {
+        return Err("no hay comando que recordar".to_owned());
+    }
+
+    let mut tools = Tools::load();
+    if !tools.trusts(key) {
+        tools.trust.push(key.to_owned());
+    }
+    tools.persist()
 }
 
 /// One validated command.
@@ -438,11 +480,31 @@ mod tests {
                 .collect(),
             roots: vec![format!("{home}/.cache"), format!("{home}/Proyectos"), "/tmp".to_owned()],
             timeout_secs: 60,
+            trust: Vec::new(),
         }
     }
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_owned()).collect()
+    }
+
+    #[test]
+    fn the_fingerprint_is_the_exact_command_not_the_program() {
+        let next = fingerprint("playerctl", &args(&["next"]));
+        let back = fingerprint("playerctl", &args(&["previous"]));
+
+        assert_eq!(next, "playerctl|next");
+        assert_ne!(next, back, "permitir uno no permite el otro");
+    }
+
+    #[test]
+    fn only_an_exact_fingerprint_is_trusted() {
+        let mut tools = tools();
+        tools.trust.push("playerctl|next".to_owned());
+
+        assert!(tools.trusts("playerctl|next"));
+        assert!(!tools.trusts("playerctl|previous"));
+        assert!(!tools.trusts("playerctl"));
     }
 
     #[test]

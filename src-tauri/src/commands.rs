@@ -602,7 +602,16 @@ pub async fn answer_approval(
     state: tauri::State<'_, AppState>,
     id: u64,
     approved: bool,
+    always: Option<bool>,
 ) -> Result<bool, String> {
+    if approved
+        && always.unwrap_or(false)
+        && let Some(view) = state.approval_view()
+        && let Some(key) = view.get("trust_key").and_then(|value| value.as_str())
+    {
+        nerea_core::exec::remember_command(key)?;
+    }
+
     Ok(state.decide(id, approved))
 }
 
@@ -640,18 +649,23 @@ async fn run_command_tool(
         }
     };
 
-    // His click, unless a test asked for the shortcut.
-    let approved = if std::env::var_os("NEREA_AUTO_APPROVE").is_some() {
+    // His click, unless this exact command was already trusted.
+    let key = nerea_core::exec::fingerprint(&planned.program, &planned.args);
+    let approved = if tools.trusts(&key) {
+        true
+    } else if std::env::var_os("NEREA_AUTO_APPROVE").is_some() {
         eprintln!("nerea exec: aprobación automática (NEREA_AUTO_APPROVE)");
         true
     } else {
         let (id, receiver) = state.request_approval();
+        let key = nerea_core::exec::fingerprint(&planned.program, &planned.args);
         let view = serde_json::json!({
             "id": id,
             "program": planned.program,
             "args": planned.args,
             "cwd": planned.cwd.display().to_string(),
             "warning": nerea_core::exec::warning(&planned.program),
+            "trust_key": key,
         });
 
         // Two ways to the same card: the event, and the poll the page runs while

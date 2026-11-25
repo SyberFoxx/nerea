@@ -446,6 +446,16 @@ body {
   border-color: #4fae86;
 }
 
+.change-always {
+  border-color: #4a3a22;
+  background: #1b1710;
+  color: #d9a441;
+}
+
+.change-always:hover {
+  border-color: #d9a441;
+}
+
 .change-discard:hover {
   border-color: #7a4a4a;
   color: #f0b4b4;
