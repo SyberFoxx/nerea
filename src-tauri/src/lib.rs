@@ -95,6 +95,19 @@ pub fn run() {
                 });
             }
 
+            // Development aid: print the cards a message would carry.
+            if let Ok(query) = std::env::var("NEREA_CARDS_QUERY") {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    std::thread::sleep(std::time::Duration::from_millis(900));
+                    let state = handle.state::<state::AppState>().inner().clone();
+                    match state.cards_preview(&query).await {
+                        Some(block) => eprintln!("nerea cards:\n{block}"),
+                        None => eprintln!("nerea cards: nothing selected"),
+                    }
+                });
+            }
+
             // Development aid: force the summarizer once, to check it without
             // waiting for two dozen turns.
             if std::env::var_os("NEREA_SUMMARIZE_NOW").is_some() {

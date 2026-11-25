@@ -1,8 +1,8 @@
-# memory-layers (proposed, not authorized)
+# memory-layers
 
-Layered memory for Nerea: identity that never changes, facts that live in cards,
-and a rolling summary of what already happened. Recorded as a proposal — no task
-starts until the user picks the write policy (see "Open decision").
+Layered memory for Nerea: identity that never changes, facts that live in cards, and a rolling
+summary of what already happened. Tier 1 and 3 shipped in 0.5.7 and 0.3.0; tier 2 is T8.
+Branch `main`, delivered by commit and tag, `cargo test` (no network).
 
 ## Specs (proposed)
 
@@ -17,6 +17,17 @@ S4. A card can be created or updated by her through an explicit tool, with the
     change visible in the audit log and bounded to her own directory.
 S5. The selection is a pure function, unit-tested: given cards and a message it
     returns the same result every time.
+
+## Tasks
+
+| id | task | specs | route | state |
+|---|---|---|---|---|
+| T8.1 | cards: file format, load, selection, prompt block, three-block composition | S1, S2, S3, S5 | inline | **shipped 0.9.0** |
+| T8.2 | `remember`: create/update, 2 KB cap, audit, library reload | S4 | inline | **shipped 0.9.0** |
+
+Route evidence: one feature with a written spec, one session, no parallel units and no context
+pressure — the Writer trigger does not fire. Acceptance is observed by running the app, not by
+compiling.
 
 ## Log
 
@@ -140,3 +151,38 @@ Consequences, recorded so phase 2 is unambiguous:
   for chatter, greetings or a passing preference.
 - **`remember` obeys the same 2 KB cap**, so it either fits the topic's card or it
   says so instead of silently dropping the fact.
+
+### L7 — the request that authorized it, verbatim
+
+> ok, implementemos lo de las tarjetas con esos temas que me comentaste de forma excelente, vamos ocn
+> esa fase 1 y todas las fases de forma profesional, como un senior en rust y control de ingenieria
+> de IA, asi que, vamos, los cambios los subes el repositorio porfa
+
+Phases 1 and 2 are authorized and shipped as `0.9.0`. Phase 3 stays shelved by L6: it is a new
+decision, not a pending task.
+
+### L8 — one index, not two
+
+L4 proposed a `cards/index.json` beside the files. Shipped without it: an on-disk index is a second
+source of truth that can disagree with the cards a human edits by hand, and with a handful of 2 KB
+files the cost it saves is a directory read per turn. The library lives in memory
+(`Session::cards`), is loaded once at boot, and reloads after a `remember` writes. If the card count
+ever makes boot parsing slow, the fix is a cache, not a second file to keep in sync.
+
+### L9 — the floor, corrected by running the acceptance
+
+The first implementation set the selection floor at two points (tags 3, title 2, body 1). Walking
+phase 2 end to end exposed it: a card written by `remember` has no tags unless the model supplies
+them, and a fact like "mi cumpleaños es el 12 de abril" only matches through its body — one point.
+The card would have been written and then never found, which is the same as not having written it.
+
+Two fixes, both measured:
+
+- the floor is one point, so one real shared word is enough; the limit of three cards is what
+  bounds noise, not the floor;
+- a card created without tags is indexed by its topic, so the subject word the user says always
+  reaches it.
+
+Evidence: after the fix, `remember` wrote `cumpleanos_lioner.md` (no tags from the model beyond its
+own wording) and a restart answered "El 12 de abril, mi dragón" from the card, with the block
+confirmed by `NEREA_CARDS_QUERY`.

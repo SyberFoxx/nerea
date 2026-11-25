@@ -3,6 +3,7 @@
 //! This crate knows nothing about windows, UI toolkits or IPC on purpose.
 
 pub mod ai;
+pub mod cards;
 pub mod config;
 pub mod conversation;
 pub mod error;
@@ -29,7 +30,7 @@ pub use factory::{BuildError, Chain, KeySource, KeyState, PlatformKeys};
 pub use memory::{Memory, MemoryStore};
 pub use phrase::{Phrase, PhraseBank};
 pub use recall::{Corpus, Hit};
-pub use conversation::{Conversation, estimate_tokens};
+pub use conversation::{Conversation, PromptContext, estimate_tokens};
 pub use error::ProviderError;
 pub use secrets::{SecretError, SecretStore};
 pub use transcript::{Entry, Transcript};

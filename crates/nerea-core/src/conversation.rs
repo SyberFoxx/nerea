@@ -11,6 +11,19 @@ pub fn estimate_tokens(text: &str) -> usize {
     text.chars().count().div_ceil(CHARS_PER_TOKEN)
 }
 
+/// What travels with the prompt besides the turns themselves.
+///
+/// Three blocks with separate budgets: identity always, the summary always, the
+/// cards only when the message asks for one. Three positional `Option<&str>`
+/// arguments would let a caller pass the summary where the cards belong, and
+/// nothing would catch it; a struct cannot.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct PromptContext<'a> {
+    pub memory: Option<&'a str>,
+    pub recall: Option<&'a str>,
+    pub cards: Option<&'a str>,
+}
+
 /// Turn history with a bounded prompt window.
 pub struct Conversation {
     system_prompt: String,
@@ -97,16 +110,26 @@ impl Conversation {
     ///
     /// They go there instead of as extra system turns because not every
     /// gateway treats multiple system messages the same way.
-    pub fn request_with_context(&self, memory: Option<&str>, recall: Option<&str>) -> ChatRequest {
+    pub fn request_with_context(&self, context: PromptContext<'_>) -> ChatRequest {
         let mut request = self.request();
         let mut extra = String::new();
 
-        if let Some(memory) = memory.map(str::trim).filter(|text| !text.is_empty()) {
+        if let Some(memory) = context.memory.map(str::trim).filter(|text| !text.is_empty()) {
             extra.push_str("\n\nMemoria de la conversación hasta ahora (tu recuerdo, no del usuario):\n");
             extra.push_str(memory);
         }
 
-        if let Some(recall) = recall.map(str::trim).filter(|text| !text.is_empty()) {
+        // The facts come before the fragments: what is still true matters more
+        // than an episode from March.
+        if let Some(cards) = context.cards.map(str::trim).filter(|text| !text.is_empty()) {
+            extra.push_str(
+                "\n\nLo que sabés sobre esto, guardado en tus tarjetas (son tuyos: no los repitas \
+textualmente, usalos si vienen al caso, y si algo parece viejo decilo):\n",
+            );
+            extra.push_str(cards);
+        }
+
+        if let Some(recall) = context.recall.map(str::trim).filter(|text| !text.is_empty()) {
             extra.push_str(
                 "\n\nFragmentos de conversaciones anteriores que pueden venir al caso. Son recuerdos \
 tuyos: no los repitas textualmente, usalos solo si ayudan.\n",
@@ -258,6 +281,32 @@ mod tests {
         assert!(tool.content.contains("recortado"));
         // The question is still there: that is what she was answering.
         assert!(prompt.iter().any(|message| message.content.contains("novela")));
+    }
+
+    #[test]
+    fn each_context_block_lands_in_its_own_place() {
+        let mut conversation = Conversation::new("system", 100);
+        conversation.push_user("hola");
+
+        let plain = conversation.request_with_context(PromptContext {
+            memory: Some("el resumen"),
+            ..PromptContext::default()
+        });
+        let system = &plain.messages[0].content;
+        assert!(system.contains("el resumen"), "{system}");
+        assert!(!system.contains("tarjetas"), "{system}");
+
+        let full = conversation.request_with_context(PromptContext {
+            memory: Some("el resumen"),
+            cards: Some("### El faro (lore_novela)\n- Nerea vive ahí"),
+            recall: Some("un fragmento viejo"),
+        });
+        let system = &full.messages[0].content;
+
+        let memory_at = system.find("el resumen").expect("memory");
+        let cards_at = system.find("lore_novela").expect("cards");
+        let recall_at = system.find("un fragmento viejo").expect("recall");
+        assert!(memory_at < cards_at && cards_at < recall_at, "{system}");
     }
 
     #[test]

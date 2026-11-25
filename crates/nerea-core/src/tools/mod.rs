@@ -1,4 +1,7 @@
-//! Read-only access to the machine: what she may look at, and how.
+//! What she may do with the machine: look, and keep a note of her own.
+//!
+//! Four tools read; the fifth, `remember`, writes — and only inside her own
+//! cards directory, never a path the model hands in.
 //!
 //! She never gets a shell. Every capability is a named function with a typed
 //! argument shape, declared to the model as a tool. The API says when she wants
@@ -15,6 +18,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use crate::ai::{ToolCall, ToolSpec};
+use crate::cards::{self, Kept};
 
 /// She looks, reads what she found, and answers. Three rounds in total: the
 /// last one is the answer, so each round before it can ask for files.
@@ -151,6 +155,37 @@ of listing folder after folder."
                 "required": ["pattern", "path"]
             }),
         },
+        ToolSpec {
+            name: "remember".to_owned(),
+            description: "Save a durable fact in your own memory cards, one card per topic. Use it \
+ONLY when the user explicitly asks you to remember something important (\"recuerda esto\", \"anotá \
+que…\", \"no te olvides de…\"). Never on your own initiative, and never for greetings, small talk \
+or a passing preference: those belong to the conversation, not to a card. It never deletes a fact, \
+and one card holds at most 2 KB — if the fact does not fit, say so instead of dropping something."
+                .to_owned(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "One word naming the card, like lore_novela or proyectos_actuales"
+                    },
+                    "fact": {
+                        "type": "string",
+                        "description": "The fact to keep, as one sentence"
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "A readable title. Only used when the card is new"
+                    },
+                    "tags": {
+                        "type": "string",
+                        "description": "Comma-separated words the user would say when this matters, like \"novela, capitulos\""
+                    }
+                },
+                "required": ["topic", "fact"]
+            }),
+        },
     ]
 }
 
@@ -185,6 +220,7 @@ pub fn describe(call: &ToolCall) -> String {
             }
         }
         "find" => format!("buscando el archivo «{}»", cut(text("pattern"), 40)),
+        "remember" => format!("anotando en «{}»", cut(text("topic"), 30)),
         other => format!("usando {other}"),
     }
 }
@@ -243,8 +279,10 @@ pub fn run(call: &ToolCall) -> ToolOutcome {
         "list_dir" => list_dir(&args),
         "search" => search(&args),
         "find" => find(&args),
+        "remember" => keep(&args, &cards::dir()),
         other => Err(format!(
-            "no tengo una herramienta llamada «{other}». Tengo read_file, list_dir, search y find"
+            "no tengo una herramienta llamada «{other}». Tengo read_file, list_dir, search, find y \
+remember"
         )),
     };
 
@@ -536,6 +574,33 @@ fn find(args: &Value) -> Result<String, String> {
     Ok(clip(out))
 }
 
+/// The only writing tool, and it takes no path: the file name comes from a
+/// slug, so a `topic` can never point outside the cards directory.
+fn keep(args: &Value, dir: &Path) -> Result<String, String> {
+    let topic = string_arg(args, "topic")?;
+    let fact = string_arg(args, "fact")?;
+    let title = args.get("title").and_then(Value::as_str);
+    let tags = args.get("tags").and_then(Value::as_str).unwrap_or_default();
+
+    let kept = cards::remember(dir, topic, title, tags, fact)?;
+    let name = |path: &Path| {
+        path.file_stem().and_then(|stem| stem.to_str()).unwrap_or(topic).to_owned()
+    };
+
+    Ok(match kept {
+        Kept::Created { path, facts } => format!(
+            "Anotado en la tarjeta nueva «{}», que ahora tiene {facts} hechos. Vive en {}.",
+            name(&path),
+            path.display()
+        ),
+        Kept::Updated { path, facts } => format!(
+            "Anotado en la tarjeta «{}», que ahora tiene {facts} hechos.",
+            name(&path)
+        ),
+        Kept::AlreadyThere { .. } => "Eso ya estaba anotado: no lo dupliqué.".to_owned(),
+    })
+}
+
 fn string_arg<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
     args.get(key)
         .and_then(Value::as_str)
@@ -655,7 +720,40 @@ mod tests {
     fn an_unknown_tool_is_a_message_not_a_panic() {
         let outcome = run(&call("rm_rf", serde_json::json!({})));
         assert!(!outcome.ok);
-        assert!(outcome.observation.contains("read_file"), "{}", outcome.observation);
+        for name in ["read_file", "list_dir", "search", "find", "remember"] {
+            assert!(outcome.observation.contains(name), "{}", outcome.observation);
+        }
+    }
+
+    /// The tool layer is the seam: `keep` takes the directory it writes to, so
+    /// this test never depends on `NEREA_DATA_DIR` or on a real card.
+    #[test]
+    fn remember_says_what_it_did_and_does_not_duplicate() {
+        let dir = scratch("tool-remember");
+        let args = serde_json::json!({
+            "topic": "lore_novela",
+            "title": "La novela",
+            "tags": "novela, capitulos",
+            "fact": "Nerea vive en el faro"
+        });
+
+        let first = keep(&args, &dir).expect("written");
+        assert!(first.contains("tarjeta nueva"), "{first}");
+        assert!(first.contains("1 hechos"), "{first}");
+        assert!(dir.join("lore_novela.md").is_file());
+
+        let again = keep(&args, &dir).expect("still fine");
+        assert!(again.contains("ya estaba"), "{again}");
+    }
+
+    #[test]
+    fn remember_refuses_a_topic_that_is_a_path() {
+        let dir = scratch("tool-remember-topic");
+        let args = serde_json::json!({ "topic": "../fuera", "fact": "un hecho" });
+
+        let err = keep(&args, &dir).expect_err("must refuse");
+        assert!(err.contains("ruta"), "{err}");
+        assert!(!dir.join("..").join("fuera.md").exists());
     }
 
     #[test]

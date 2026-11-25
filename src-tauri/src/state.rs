@@ -4,12 +4,14 @@ use std::sync::{
 };
 
 use nerea_core::{
+    cards::{self, Card},
     factory::{self, PlatformKeys},
     memory::{plan, Memory, MemoryStore},
     presets,
     recall::{age_label, Corpus, Hit},
     transcript::Transcript,
-    AiProvider, ChatMessage, ChatRequest, Config, Conversation, Entry, Role, ToolCall,
+    AiProvider, ChatMessage, ChatRequest, Config, Conversation, Entry, PromptContext, Role,
+    ToolCall,
 };
 use serde::Serialize;
 use tokio::sync::Mutex;
@@ -76,6 +78,11 @@ struct Session {
     memory: Memory,
     recall: RecallIndex,
     since_index: usize,
+    /// The knowledge cards, read once at boot and re-read after a `remember`.
+    cards: Vec<Card>,
+    /// The card block chosen for the turn in flight. Stable across its tool
+    /// rounds on purpose: the question did not change between them.
+    cards_for_turn: Option<String>,
 }
 
 /// Shared state behind the IPC commands.
@@ -138,6 +145,9 @@ impl AppState {
 
         let recall = RecallIndex::build(transcript.entries());
 
+        // Cards are read once here: a handful of 2 KB files, not a scan per turn.
+        let cards = cards::load(&cards::dir());
+
         Self {
             session: Arc::new(Mutex::new(Session {
                 conversation,
@@ -146,6 +156,8 @@ impl AppState {
                 memory,
                 recall,
                 since_index: 0,
+                cards,
+                cards_for_turn: None,
             })),
             cancel: Arc::new(AtomicBool::new(false)),
             transcript,
@@ -207,10 +219,19 @@ impl AppState {
 
         let (rendered, recalled, oldest_days) = render_recall(&session.recall, text);
 
+        // The cards are chosen from the message itself. Nothing above the floor
+        // means nothing injected: the common turn costs zero tokens.
+        let selected = cards::select(&session.cards, text, cards::MAX_SELECTED);
+        session.cards_for_turn = cards::block(&selected);
+
         let summary = session.memory.text.clone();
         let request = session
             .conversation
-            .request_with_context(Some(&summary), rendered.as_deref())
+            .request_with_context(PromptContext {
+                memory: Some(&summary),
+                cards: session.cards_for_turn.as_deref(),
+                recall: rendered.as_deref(),
+            })
             .with_tools(nerea_core::tools::specs());
 
         Turn { request, recalled, oldest_days }
@@ -221,7 +242,11 @@ impl AppState {
         let session = self.session.lock().await;
         session
             .conversation
-            .request_with_context(Some(&session.memory.text), None)
+            .request_with_context(PromptContext {
+                memory: Some(&session.memory.text),
+                cards: session.cards_for_turn.as_deref(),
+                recall: None,
+            })
             .with_tools(nerea_core::tools::specs())
     }
 
@@ -234,6 +259,9 @@ impl AppState {
         results: Vec<String>,
     ) {
         let mut session = self.session.lock().await;
+        // A card written mid-turn is memory for the next one, not for the round
+        // that is answering: re-reading here keeps the turn's prompt stable.
+        let wrote = calls.iter().any(|call| call.name == "remember");
         // What she read in an earlier round only needs its opening lines: the
         // question she is answering is worth more than the tail of an old file.
         session.conversation.compact_observations(COMPACT_OBSERVATION_CHARS);
@@ -241,6 +269,9 @@ impl AppState {
         session.conversation.push_tool_round(said, calls);
         for (id, result) in ids.iter().zip(results) {
             session.conversation.push_tool_result(id, result);
+        }
+        if wrote {
+            session.cards = cards::load(&cards::dir());
         }
     }
 
@@ -334,6 +365,13 @@ impl AppState {
     pub async fn recall_preview(&self, query: &str) -> Option<String> {
         let session = self.session.lock().await;
         render_recall(&session.recall, query).0
+    }
+
+    /// Read-only peek at the card block a message would carry, for diagnostics.
+    pub async fn cards_preview(&self, query: &str) -> Option<String> {
+        let session = self.session.lock().await;
+        let selected = cards::select(&session.cards, query, cards::MAX_SELECTED);
+        cards::block(&selected)
     }
 
     pub async fn memory_text(&self) -> String {
