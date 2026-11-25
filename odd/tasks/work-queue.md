@@ -20,6 +20,8 @@ Source documents: `system-access-tiers.md` (tool surface and gaps) and
 | T6 | `list_dir` distinguishes symlink, hidden and file | a listing that lies is worse than a short one | S | **shipped 0.8.0** |
 | T7 | honest tool descriptions for images, audio and video | she should stop trying instead of failing twice | S | **shipped 0.8.0** |
 | T8 | knowledge cards + `remember` (memory tier 2) | the only real memory gap; details in `memory-layers.md` | M | **shipped 0.9.0** |
+| T14 | `run_command`: real programs behind an allowlist and a click | she could read the system and write files, but could not use a tool | L | **shipped 0.12.0** |
+| T15 | `docs`: context7 over MCP, one tool | the model invents API signatures; current documentation fixes that | M | **shipped 0.12.0** |
 | T13 | write files with approval: propose, show the diff, apply on a click | she reads and finds the error, then cannot fix it | L | **shipped 0.11.0** |
 | T11 | push-to-talk: record, transcribe, answer in text | she had no way to be spoken to; the ear is local and free | L | **shipped 0.10.0** |
 | T12 | system sensors: `processes`, `system`, `services`, `logs` | she could read files but not see what runs, what eats memory or what broke | M | **shipped 0.10.0** |
@@ -94,6 +96,7 @@ feature, and the row moves to the queue when that happens.
 | version | tasks | evidence |
 |---|---|---|
 | `0.7.0` | T1, T2, T3 | `search` with `deep: true` found "Capítulo 1" at line 1 inside `Nerea.docx`; `find` located both copies by name; 120 tests, clippy clean |
+| `0.12.0` | T14, T15 | `playerctl metadata` ran after approval and she explained the real output; `docs` returned current tokio signatures and she wrote `timeout(duration, future) -> Timeout<F::IntoFuture>`. 197 tests, clippy clean |
 | `0.11.0` | T13 | a proposed `/tmp/prueba-nerea.txt` stayed uncreated until approval, and the card showed the diff, `nuevo · +2 −0` and the two buttons. 179 tests, clippy clean |
 | `0.10.0` | T11, T12 | her own voice sample transcribed word for word ("...el audio se transcribe a texto..."); and asked about memory she named `qs -c shell` at 1163 MB and found two failed mount units. 166 tests, clippy clean |
 | `0.9.0` | T8 | card `lore_novela` pulled for "¿en qué capítulo va la novela?" and `proyectos_actuales` not; "hola" injected nothing; `remember` created `cumpleanos_lioner.md` and she answered "el 12 de abril" after a restart. 146 tests, clippy clean |

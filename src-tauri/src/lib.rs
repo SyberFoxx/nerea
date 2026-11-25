@@ -239,6 +239,7 @@ pub fn run() {
             commands::voice_state,
             commands::voice_preference,
             commands::voice_set_preference,
+            commands::answer_approval,
             commands::pending_changes,
             commands::apply_change,
             commands::discard_change,

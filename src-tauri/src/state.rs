@@ -93,6 +93,9 @@ struct Session {
 #[derive(Clone)]
 pub struct AppState {
     session: Arc<Mutex<Session>>,
+    /// Commands waiting for his click, by id.
+    approvals: Arc<std::sync::Mutex<std::collections::HashMap<u64, tokio::sync::oneshot::Sender<bool>>>>,
+    approval_seq: Arc<std::sync::atomic::AtomicU64>,
     cancel: Arc<AtomicBool>,
     transcript: Arc<Transcript>,
     memory_store: Arc<MemoryStore>,
@@ -160,6 +163,8 @@ impl AppState {
                 cards_for_turn: None,
             })),
             cancel: Arc::new(AtomicBool::new(false)),
+            approvals: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            approval_seq: Arc::new(std::sync::atomic::AtomicU64::new(1)),
             transcript,
             memory_store,
             restored: Arc::new(AtomicUsize::new(restored.len())),
@@ -205,6 +210,26 @@ impl AppState {
             memory_words: session.memory.words(),
             session_id: session.conversation.session_id().to_owned(),
             warnings: session.warnings.clone(),
+        }
+    }
+
+    /// Registers a command waiting for approval and returns the id and the
+    /// channel the answer will arrive on.
+    pub fn request_approval(&self) -> (u64, tokio::sync::oneshot::Receiver<bool>) {
+        let id = self.approval_seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        if let Ok(mut map) = self.approvals.lock() {
+            map.insert(id, sender);
+        }
+        (id, receiver)
+    }
+
+    /// The click. A second answer for the same id is ignored.
+    pub fn decide(&self, id: u64, approved: bool) -> bool {
+        let sender = self.approvals.lock().ok().and_then(|mut map| map.remove(&id));
+        match sender {
+            Some(sender) => sender.send(approved).is_ok(),
+            None => false,
         }
     }
 

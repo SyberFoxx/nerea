@@ -25,7 +25,7 @@ tools/voice           machine-local, gitignored: venv + GPT-SoVITS weights (~11 
 ```bash
 cargo build -p nerea-desktop                 # debug build
 cargo run -p nerea-desktop                   # the app
-cargo test                                   # 179 tests, no network
+cargo test                                   # 197 tests, no network
 cargo clippy --all-targets -- -D warnings
 node --check ui/avatar.js && node --check ui/main.js
 
@@ -75,6 +75,13 @@ its prose. That is deliberate: with a JSON block in the prompt a flash model wou
   command the page calls, and the model has no route to it. The original is copied to
   `~/.local/share/nerea/backups/` first; an edit whose fragment matches twice is refused; a target
   that changed under the proposal is refused.
+- `run_command` is the only way to run a program, and it is not a shell: `{program, args[]}`,
+  validated against `~/.config/nerea/tools.toml` and against these rules, which live in code:
+  `sudo`/`pkexec` never run; every path argument is checked (a credential file is refused, an
+  output must land inside the declared roots); deleting a root or an ancestor of one is refused.
+  The turn **blocks** on his click — a card he cannot see is a turn that hangs, so the chat opens.
+- `docs` speaks MCP to context7 over streamable HTTP, and exposes **one** tool instead of the
+  server's two: every schema is paid on every request, and the window is 8 000 tokens.
 - `processes`, `system`, `services` and `logs` read the machine's vitals: `/proc` directly,
   plus `systemctl --failed` and `journalctl` with fixed arguments. Read-only, no shell, no command
   assembled from model text. `processes` sees every process; `limit` decides how many come back.
@@ -148,6 +155,8 @@ its prose. That is deliberate: with a JSON block in the prompt a flash model wou
   async-signal-safe context. Use the named pipe.
 - **The microphone is at 18 %.** The app normalises a quiet clip to a 9 000 peak before sending
   it, so the system volume does not have to be right for her to hear you.
+- **A blocked turn looks like a hang.** `run_command` waits up to 180 s for a click; when the panel
+  was closed, the card existed nowhere visible. The approval emits `nerea://panel` first.
 - **`cargo build` does not always re-embed `ui/`.** A UI change can compile green and never reach the
   binary; `cargo clean -p nerea-desktop` forces it. The assets are compressed, so `strings` will not
   tell you either — test the page, not the file.
@@ -187,6 +196,8 @@ and `NEREA_TTS_PYTHON` tune the engine.
 | `NEREA_SUMMARIZE_NOW=1` | force one summary |
 | `NEREA_RECALL_QUERY="…"` | print what recall would send |
 | `NEREA_CARDS_QUERY="…"` | print the cards a message would carry |
+| `NEREA_AUTO_APPROVE=1` | skips the approval card for `run_command`. **Never in normal use** |
+| `NEREA_MCP_URL=…` | override the context7 endpoint |
 | `NEREA_LISTEN_MS=3000` | one push-to-talk turn by itself: record 3 s, transcribe, answer |
 | `NEREA_MIC=default` | capture device for `arecord` |
 | `NEREA_STT_MODEL=small` | whisper model; `base` is faster and worse in Spanish |

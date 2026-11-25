@@ -158,6 +158,53 @@ of listing folder after folder."
             }),
         },
         ToolSpec {
+            name: "docs".to_owned(),
+            description: "Look up current, versioned documentation for a programming library \
+(context7): real API signatures instead of what the model remembers. Use it before writing code \
+against a library, and never guess a signature. `library` is a package name like \"tokio\" or a \
+path like \"/tokio-rs/tokio\"; `question` is what you need to know, in one sentence."
+                .to_owned(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "library": { "type": "string", "description": "Package name or /org/project" },
+                    "question": { "type": "string", "description": "What you need to know, one sentence" }
+                },
+                "required": ["library", "question"]
+            }),
+        },
+        ToolSpec {
+            name: "run_command".to_owned(),
+            description: "Run a program on his machine, after he approves it. There is no \
+shell: `program` is a name from his allowlist and `args` is that program's own argv, so `;`, \
+`|` and `$(…)` are not possible. Every command opens a card with the exact argv and waits for \
+him. Deleting is only allowed inside his declared folders; `sudo` never runs."
+                .to_owned(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "program": {
+                        "type": "string",
+                        "description": "The program name, like pandoc or playerctl — never a path"
+                    },
+                    "args": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Its arguments, one per element, exactly as the program expects"
+                    },
+                    "cwd": {
+                        "type": "string",
+                        "description": "Folder to run in. Defaults to his home"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "One line for him: why this command"
+                    }
+                },
+                "required": ["program", "args"]
+            }),
+        },
+        ToolSpec {
             name: "write_file".to_owned(),
             description: "Propose writing a whole file: new, or replacing an existing one. It \
 does NOT write by itself — the change waits for Lioner to approve it in the chat, and he sees \
@@ -320,6 +367,13 @@ pub fn describe(call: &ToolCall) -> String {
         }
         "find" => format!("buscando el archivo «{}»", cut(text("pattern"), 40)),
         "remember" => format!("anotando en «{}»", cut(text("topic"), 30)),
+        "docs" => format!("buscando documentación de «{}»", cut(text("library"), 30)),
+        "run_command" => {
+            let args = args.get("args").and_then(Value::as_array).cloned().unwrap_or_default();
+            let rendered: Vec<String> =
+                args.iter().map(|arg| arg.as_str().unwrap_or_default().to_owned()).collect();
+            format!("ejecutando {} {}", cut(text("program"), 20), cut(&rendered.join(" "), 50))
+        }
         "write_file" => format!("proponiendo escribir {}", short_path(text("path"))),
         "edit_file" => format!("proponiendo un cambio en {}", short_path(text("path"))),
         "processes" => "mirando los procesos".to_owned(),
@@ -343,6 +397,20 @@ impl Budget {
     pub fn left(&self) -> usize {
         self.left
     }
+}
+
+/// Charges an observation that did not come from `run_charged`, like a command
+/// the shell had to run asynchronously.
+pub fn charge(mut outcome: ToolOutcome, budget: &mut Budget) -> ToolOutcome {
+    let taken = outcome.observation.chars().count();
+    if taken > budget.left {
+        let kept: String = outcome.observation.chars().take(budget.left).collect();
+        outcome.observation = format!("{kept}\n\n[recortado: el turno ya leyó bastante]");
+        budget.left = 0;
+    } else {
+        budget.left -= taken;
+    }
+    outcome
 }
 
 /// Runs one call and charges what it returned against the turn.
@@ -400,7 +468,7 @@ pub fn run(call: &ToolCall) -> ToolOutcome {
         "remember" => keep(&args, &cards::dir()),
         other => Err(format!(
             "no tengo una herramienta llamada «{other}». Tengo read_file, list_dir, search, find, \
-remember, processes, system, services, logs, write_file y edit_file"
+remember, processes, system, services, logs, write_file, edit_file, run_command y docs"
         )),
     };
 

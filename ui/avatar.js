@@ -7,6 +7,8 @@ const panel = document.getElementById("panel");
 const talk = document.getElementById("talk");
 const pendingBlock = document.getElementById("pending");
 const pendingList = document.getElementById("pending-list");
+const approveBlock = document.getElementById("approve");
+const approveBody = document.getElementById("approve-body");
 const log = document.getElementById("log");
 const form = document.getElementById("composer");
 const prompt = document.getElementById("prompt");
@@ -548,6 +550,8 @@ async function start() {
     }
   });
 
+  await tauri.event.listen("nerea://approve", (event) => showApproval(event.payload));
+
   await tauri.event.listen("nerea://pending", () => loadPending());
 
   await tauri.event.listen("nerea://say", (event) => playLine(event.payload));
@@ -576,6 +580,10 @@ async function start() {
     if (payload.listening) {
       subtitle.textContent = "Te escucho…";
       subtitle.hidden = false;
+      // The recorder stops itself after 30 s; the label has to stop too.
+      listenTimer = setTimeout(() => {
+        if (!speaking) subtitle.hidden = true;
+      }, 35_000);
       return;
     }
 

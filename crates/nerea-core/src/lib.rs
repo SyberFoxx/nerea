@@ -8,8 +8,10 @@ pub mod changes;
 pub mod config;
 pub mod conversation;
 pub mod error;
+pub mod exec;
 pub mod factory;
 pub mod hearing;
+pub mod mcp;
 pub mod memory;
 pub mod paths;
 pub mod persona;
@@ -28,6 +30,7 @@ pub use ai::{
     ToolSpec, Usage,
 };
 pub use changes::{Change, Kind};
+pub use exec::{Outcome, Plan, Tools};
 pub use config::{Config, Fallback, Voice};
 pub use factory::{BuildError, Chain, KeySource, KeyState, PlatformKeys};
 pub use memory::{Memory, MemoryStore};

@@ -584,6 +584,129 @@ pub struct PendingChange {
     preview: String,
 }
 
+/// What the approval card shows: the exact argv, and why it matters.
+#[derive(Debug, Clone, serde::Serialize)]
+struct Approval {
+    id: u64,
+    program: String,
+    args: Vec<String>,
+    cwd: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    warning: Option<&'static str>,
+}
+
+/// His answer to a pending command. One id, one answer.
+#[tauri::command]
+pub async fn answer_approval(
+    state: tauri::State<'_, AppState>,
+    id: u64,
+    approved: bool,
+) -> Result<bool, String> {
+    Ok(state.decide(id, approved))
+}
+
+/// Runs `run_command` for real: policy, then his click, then the process.
+async fn run_command_tool(
+    app: &AppHandle,
+    state: &AppState,
+    call: &nerea_core::ToolCall,
+    budget: &mut nerea_core::tools::Budget,
+) -> nerea_core::tools::ToolOutcome {
+    let args: serde_json::Value = serde_json::from_str(&call.arguments).unwrap_or_default();
+    let summary = nerea_core::tools::describe(call);
+
+    let program = args.get("program").and_then(|value| value.as_str()).unwrap_or_default();
+    let list: Vec<String> = args
+        .get("args")
+        .and_then(|value| value.as_array())
+        .map(|items| items.iter().map(|item| item.as_str().unwrap_or_default().to_owned()).collect())
+        .unwrap_or_default();
+    let cwd = args.get("cwd").and_then(|value| value.as_str());
+
+    let tools = nerea_core::exec::Tools::load();
+    let planned = match nerea_core::exec::plan(&tools, program, &list, cwd) {
+        Ok(plan) => plan,
+        Err(err) => {
+            nerea_core::tools::audit::append("run_command", &args, &summary, false, 0);
+            return nerea_core::tools::charge(
+                nerea_core::tools::ToolOutcome {
+                    summary,
+                    observation: format!("No puedo: {err}"),
+                    ok: false,
+                },
+                budget,
+            );
+        }
+    };
+
+    // His click, unless a test asked for the shortcut.
+    let approved = if std::env::var_os("NEREA_AUTO_APPROVE").is_some() {
+        eprintln!("nerea exec: aprobación automática (NEREA_AUTO_APPROVE)");
+        true
+    } else {
+        let (id, receiver) = state.request_approval();
+        // The card has to be visible: a turn that waits for a click he cannot
+        // see is a turn that hangs. Opening the chat is the smallest fix.
+        let _ = app.emit("nerea://panel", true);
+        let _ = app.emit(
+            APPROVE_EVENT,
+            Approval {
+                id,
+                program: planned.program.clone(),
+                args: planned.args.clone(),
+                cwd: planned.cwd.display().to_string(),
+                warning: nerea_core::exec::warning(&planned.program),
+            },
+        );
+
+        match tokio::time::timeout(std::time::Duration::from_secs(180), receiver).await {
+            Ok(Ok(answer)) => answer,
+            _ => false,
+        }
+    };
+
+    if !approved {
+        let observation = format!("Lioner no aprobó `{}`: no lo ejecuté.", planned.program);
+        nerea_core::tools::audit::append("run_command", &args, &summary, false, observation.len());
+        return nerea_core::tools::charge(
+            nerea_core::tools::ToolOutcome { summary, observation, ok: false },
+            budget,
+        );
+    }
+
+    let timeout = tools.timeout();
+    let spawned =
+        tokio::task::spawn_blocking(move || nerea_core::exec::run(&planned, timeout)).await;
+
+    let (ok, observation) = match spawned {
+        Ok(Ok(outcome)) => (outcome.ok(), outcome.report()),
+        Ok(Err(err)) => (false, format!("No pude: {err}")),
+        Err(err) => (false, format!("El proceso se perdió: {err}")),
+    };
+
+    nerea_core::tools::audit::append("run_command", &args, &summary, ok, observation.len());
+    nerea_core::tools::charge(nerea_core::tools::ToolOutcome { summary, observation, ok }, budget)
+}
+
+/// `docs` is a network call, so it lives here and not in the sync tool table.
+async fn docs_tool(
+    call: &nerea_core::ToolCall,
+    budget: &mut nerea_core::tools::Budget,
+) -> nerea_core::tools::ToolOutcome {
+    let args: serde_json::Value = serde_json::from_str(&call.arguments).unwrap_or_default();
+    let summary = nerea_core::tools::describe(call);
+    let library = args.get("library").and_then(|value| value.as_str()).unwrap_or_default();
+    let question = args.get("question").and_then(|value| value.as_str()).unwrap_or_default();
+
+    let (ok, observation) = match nerea_core::mcp::docs(library, question).await {
+        Ok(text) => (true, text),
+        Err(err) => (false, format!("No pude: {err}")),
+    };
+
+    nerea_core::tools::audit::append("docs", &args, &summary, ok, observation.len());
+    nerea_core::tools::charge(nerea_core::tools::ToolOutcome { summary, observation, ok }, budget)
+}
+
 /// What she proposed and nobody approved yet. Read-only.
 #[tauri::command]
 pub async fn pending_changes() -> Result<Vec<PendingChange>, String> {
@@ -783,6 +906,8 @@ const HEARD_EVENT: &str = "nerea://heard";
 const REPLY_EVENT: &str = "nerea://reply";
 /// Something was proposed, applied or discarded: the cards refresh.
 const PENDING_EVENT: &str = "nerea://pending";
+/// A command is waiting for his click.
+const APPROVE_EVENT: &str = "nerea://approve";
 
 /// What the microphone is doing, and why it stopped when it stopped badly.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -873,7 +998,11 @@ pub async fn send_message(
         let mut results = Vec::new();
         for call in streamed.calls.into_iter().take(nerea_core::tools::MAX_CALLS_PER_ROUND) {
             let _ = app.emit(TOOL_EVENT, ToolNote { text: nerea_core::tools::describe(&call) });
-            let outcome = nerea_core::tools::run_charged(&call, &mut budget);
+            let outcome = match call.name.as_str() {
+                "run_command" => run_command_tool(&app, state.inner(), &call, &mut budget).await,
+                "docs" => docs_tool(&call, &mut budget).await,
+                _ => nerea_core::tools::run_charged(&call, &mut budget),
+            };
             results.push(outcome.observation);
             calls.push(call);
         }
