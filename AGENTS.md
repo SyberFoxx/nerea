@@ -25,7 +25,7 @@ tools/voice           machine-local, gitignored: venv + GPT-SoVITS weights (~11 
 ```bash
 cargo build -p nerea-desktop                 # debug build
 cargo run -p nerea-desktop                   # the app
-cargo test                                   # 199 tests, no network
+cargo test                                   # 209 tests, no network
 cargo clippy --all-targets -- -D warnings
 node --check ui/avatar.js && node --check ui/main.js
 
@@ -163,6 +163,9 @@ its prose. That is deliberate: with a JSON block in the prompt a flash model wou
   purpose, but a provider that stops sending used to freeze the turn forever — and the stop button
   did nothing, because the loop was blocked waiting for a byte. Ninety seconds of silence now ends
   the turn with a message.
+- **A launcher that copies `Exec=` verbatim fails on flatpak.** The exported entry carries
+  `--file-forwarding … @@u %U @@`; with no files those markers make `flatpak` complain. Flatpak
+  entries are rebuilt as `flatpak run <id>`, and field codes are dropped everywhere else.
 - **A missing function in the UI looks exactly like a hung turn.** `setBusy` called
   `setInterval(checkApproval, …)` before `checkApproval` existed: the ReferenceError aborted
   `send()` before `invoke`, so the chat said "pensando" while nothing reached Rust — no log, no

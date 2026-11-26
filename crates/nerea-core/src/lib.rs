@@ -3,6 +3,7 @@
 //! This crate knows nothing about windows, UI toolkits or IPC on purpose.
 
 pub mod ai;
+pub mod apps;
 pub mod cards;
 pub mod changes;
 pub mod config;

@@ -21,6 +21,7 @@ use serde_json::{Value, json};
 use crate::ai::{ToolCall, ToolSpec};
 use crate::cards::{self, Kept};
 use crate::changes;
+use crate::apps::{self, Lookup};
 
 /// She looks, reads what she found, and answers. Three rounds in total: the
 /// last one is the answer, so each round before it can ask for files.
@@ -205,6 +206,24 @@ him. Deleting is only allowed inside his declared folders; `sudo` never runs."
             }),
         },
         ToolSpec {
+            name: "open_app".to_owned(),
+            description: "Open an application installed on his desktop: Spotify, Brave, a game. \
+Pass the name the way he said it. The program and its arguments come from that app's .desktop \
+file — never from you — so this can only open something already installed. If two apps match, \
+the answer lists them and you ask which one. With no `name` it returns the full list."
+                .to_owned(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Application name, like spotify, brave or unity"
+                    }
+                },
+                "required": []
+            }),
+        },
+        ToolSpec {
             name: "write_file".to_owned(),
             description: "Propose writing a whole file: new, or replacing an existing one. It \
 does NOT write by itself — the change waits for Lioner to approve it in the chat, and he sees \
@@ -374,6 +393,7 @@ pub fn describe(call: &ToolCall) -> String {
                 args.iter().map(|arg| arg.as_str().unwrap_or_default().to_owned()).collect();
             format!("ejecutando {} {}", cut(text("program"), 20), cut(&rendered.join(" "), 50))
         }
+        "open_app" => format!("abriendo «{}»", cut(text("name"), 30)),
         "write_file" => format!("proponiendo escribir {}", short_path(text("path"))),
         "edit_file" => format!("proponiendo un cambio en {}", short_path(text("path"))),
         "processes" => "mirando los procesos".to_owned(),
@@ -452,6 +472,7 @@ pub fn run(call: &ToolCall) -> ToolOutcome {
         "list_dir" => list_dir(&args),
         "search" => search(&args),
         "find" => find(&args),
+        "open_app" => open_app(&args),
         "write_file" => propose_write(&args),
         "edit_file" => propose_edit(&args),
         "processes" => {
@@ -468,7 +489,8 @@ pub fn run(call: &ToolCall) -> ToolOutcome {
         "remember" => keep(&args, &cards::dir()),
         other => Err(format!(
             "no tengo una herramienta llamada «{other}». Tengo read_file, list_dir, search, find, \
-remember, processes, system, services, logs, write_file, edit_file, run_command y docs"
+remember, processes, system, services, logs, open_app, write_file, edit_file, run_command y \
+docs"
         )),
     };
 
@@ -482,6 +504,57 @@ remember, processes, system, services, logs, write_file, edit_file, run_command 
     ToolOutcome { summary, observation, ok }
 }
 
+
+/// Opens one installed application. The name is all the model chooses: the
+/// program and every argument come from the `.desktop` file, so there is no
+/// room for `spotify --flag-you-invented`.
+fn open_app(args: &Value) -> Result<String, String> {
+    let query = args.get("name").and_then(Value::as_str).unwrap_or_default().trim();
+    let installed = apps::catalog();
+
+    if installed.is_empty() {
+        return Err(
+            "no encontré ninguna aplicación instalada: miré los .desktop del sistema y no hay \
+ninguno que pueda lanzar"
+                .to_owned(),
+        );
+    }
+
+    if query.is_empty() {
+        return Ok(format!(
+            "Estas son las aplicaciones instaladas ({}): {}",
+            installed.len(),
+            names(&installed, 60)
+        ));
+    }
+
+    match apps::resolve(&installed, query) {
+        Lookup::One(app) => {
+            apps::launch(&app)?;
+            Ok(format!("Abrí «{}».", app.name))
+        }
+        Lookup::Many(found) => Ok(format!(
+            "Hay varias parecidas a «{}»: {}. Decime cuál y la abro.",
+            cut(query, 30),
+            found.iter().take(6).map(|app| app.label()).collect::<Vec<_>>().join(", ")
+        )),
+        Lookup::None => Ok(format!(
+            "No tengo «{}» instalada. Entre las que hay: {}",
+            cut(query, 30),
+            names(&installed, 40)
+        )),
+    }
+}
+
+fn names(installed: &[apps::App], limit: usize) -> String {
+    let list: Vec<&str> = installed.iter().map(|app| app.name.as_str()).take(limit).collect();
+    let extra = installed.len().saturating_sub(list.len());
+    let mut text = list.join(", ");
+    if extra > 0 {
+        text.push_str(&format!(" y {extra} más"));
+    }
+    text
+}
 
 fn read_file(args: &Value) -> Result<String, String> {
     let path = guard::resolve(string_arg(args, "path")?)?;
