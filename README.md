@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="#quick-start"><img alt="version" src="https://img.shields.io/badge/version-0.14.0-2ec4b6?style=flat-square" /></a>
+  <a href="#quick-start"><img alt="version" src="https://img.shields.io/badge/version-0.14.1-2ec4b6?style=flat-square" /></a>
   <img alt="rust" src="https://img.shields.io/badge/Rust-2024-8b5cf6?style=flat-square&logo=rust&logoColor=white" />
   <img alt="tauri" src="https://img.shields.io/badge/Tauri-2-8b5cf6?style=flat-square&logo=tauri&logoColor=white" />
   <img alt="linux" src="https://img.shields.io/badge/Linux-x86__64-2ec4b6?style=flat-square&logo=linux&logoColor=white" />
@@ -298,7 +298,7 @@ cargo run -p nerea-cli -- config show|path|init
 cargo run -p nerea-desktop                       # the app
 NEREA_DEBUG=1 cargo run -p nerea-desktop         # log window and run events
 
-cargo test                                       # 209 tests, no network
+cargo test                                       # 213 tests, no network
 cargo clippy --all-targets -- -D warnings
 ```
 
@@ -330,7 +330,8 @@ cargo clippy --all-targets -- -D warnings
 | `0.11.0` | she proposes file changes with the diff on screen, and writes only when you approve |
 | `0.12.0` | she has hands: real programs with your click, and current documentation on demand |
 | `0.13.0` | "Siempre": one command approved once, and never asked again |
-| **`0.14.0`** | she opens your apps by name, and the argv comes from the `.desktop` file, not from her |
+| `0.14.0` | she opens your apps by name, and the argv comes from the `.desktop` file, not from her |
+| **`0.14.1`** | a blank answer explains itself: budget, failing tool, or a provider that sent nothing |
 
 PC control grows one tier at a time, and tier A is read-only on purpose: files, never a shell.
 She asks with a real tool call, the app runs one of fourteen named tools — `read_file`, `list_dir`,

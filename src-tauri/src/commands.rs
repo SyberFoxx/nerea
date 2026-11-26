@@ -982,6 +982,7 @@ pub async fn send_message(
     let mut reply = String::new();
     let mut cancelled = false;
     let mut budget = nerea_core::tools::Budget::per_message();
+    let mut facts = nerea_core::tools::BlankFacts::default();
 
     // Reading is a loop: she asks for a file, the app runs the tool, and she
     // answers with the result in hand. Bounded, because each look is another
@@ -1010,6 +1011,12 @@ pub async fn send_message(
         };
 
         cancelled = streamed.cancelled;
+        facts.empty_rounds += usize::from(reply.chars().count() == said_before);
+        if answering && !streamed.calls.is_empty() {
+            // The last round asked for a tool it could not have; that is a
+            // reason, not a mystery.
+            facts.asked_too_late = true;
+        }
         if cancelled || answering || streamed.calls.is_empty() {
             break;
         }
@@ -1025,9 +1032,21 @@ pub async fn send_message(
                 "docs" => docs_tool(&call, &mut budget).await,
                 _ => nerea_core::tools::run_charged(&call, &mut budget),
             };
+            if !outcome.ok {
+                let first: String = outcome
+                    .observation
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+                    .chars()
+                    .take(140)
+                    .collect();
+                facts.failed.push(format!("{}: {first}", outcome.summary));
+            }
             results.push(outcome.observation);
             calls.push(call);
         }
+        facts.calls += calls.len();
         state.push_tool_round(&said, calls, results).await;
 
         // Her next round is a new paragraph, not a continuation of the line she
@@ -1040,12 +1059,14 @@ pub async fn send_message(
         request = state.tool_request().await;
     }
 
-    // A turn never ends silent. If every round came back empty, say so: a mute
-    // reply with files already read is worse than admitting it.
+    // A turn never ends silent, and never ends with a shrug either: the reason
+    // is collected above, so the blank line says what actually happened.
     if reply.trim().is_empty() && !cancelled {
-        let line = "Me quedé en blanco y no te sirve. Preguntame otra vez, dale.";
-        let _ = app.emit(DELTA_EVENT, Delta { text: line.to_owned() });
-        reply.push_str(line);
+        facts.budget_exhausted = budget.left() == 0;
+        let line = nerea_core::tools::blank_reason(&facts);
+        eprintln!("nerea reply: en blanco — {}", line.replace('\n', " "));
+        let _ = app.emit(DELTA_EVENT, Delta { text: line.clone() });
+        reply.push_str(&line);
     }
 
     eprintln!("nerea turn: termina ({} chars)", reply.chars().count());

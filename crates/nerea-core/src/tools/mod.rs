@@ -404,6 +404,61 @@ pub fn describe(call: &ToolCall) -> String {
     }
 }
 
+/// Why a turn ended without words. A blank answer used to be a shrug; these
+/// are the facts that turn it into a sentence he can act on.
+#[derive(Debug, Default, Clone)]
+pub struct BlankFacts {
+    /// Tool calls that actually ran this turn.
+    pub calls: usize,
+    /// One line per tool that failed, with its own reason.
+    pub failed: Vec<String>,
+    /// The turn used its whole reading budget.
+    pub budget_exhausted: bool,
+    /// The final round still asked for a tool it could not have.
+    pub asked_too_late: bool,
+    /// Rounds that ended without a single word from the model.
+    pub empty_rounds: usize,
+}
+
+/// The line she says when she has nothing to say, explaining why.
+pub fn blank_reason(facts: &BlankFacts) -> String {
+    let (reason, hint) = if facts.asked_too_late {
+        (
+            "pedí una herramienta en la última ronda y ya no quedaba turno",
+            "Pedímelo otra vez y lo hago primero, sin hablar antes.",
+        )
+    } else if facts.budget_exhausted {
+        (
+            "se me acabó el presupuesto de lectura del turno",
+            "Partí el pedido en dos: primero lo que querés mirar, después lo que querés hacer.",
+        )
+    } else if !facts.failed.is_empty() {
+        (
+            "las herramientas fallaron antes de poder contestarte",
+            "El detalle está en la línea de abajo; decime si sigo por ahí.",
+        )
+    } else if facts.calls == 0 {
+        (
+            "el proveedor no devolvió texto",
+            "Probá de nuevo; si se repite, el problema es del servicio, no tuyo.",
+        )
+    } else {
+        ("no llegó texto en ninguna de las rondas", "Probá reformular el pedido, más corto.")
+    };
+
+    let mut text = format!("No te contesté: {reason}.\n\n{hint}");
+
+    if !facts.failed.is_empty() {
+        let detail: Vec<String> = facts.failed.iter().take(3).cloned().collect();
+        text.push_str(&format!("\n\n{}", detail.join("\n")));
+    }
+    if facts.empty_rounds > 1 {
+        text.push_str(&format!("\n\n({} rondas sin texto)", facts.empty_rounds));
+    }
+
+    text
+}
+
 /// What one message may read, in characters.
 pub struct Budget {
     left: usize,
@@ -1232,5 +1287,50 @@ mod tests {
         assert!(outcome.ok, "{}", outcome.observation);
         let listed = outcome.observation.lines().filter(|line| line.ends_with(".txt")).count();
         assert_eq!(listed, 2, "{}", outcome.observation);
+    }
+
+    #[test]
+    fn a_blank_turn_names_the_budget_when_the_budget_ran_out() {
+        let facts = BlankFacts { calls: 3, budget_exhausted: true, ..BlankFacts::default() };
+        let line = blank_reason(&facts);
+
+        assert!(line.contains("presupuesto"), "{line}");
+        assert!(line.contains("Partí el pedido"), "{line}");
+    }
+
+    #[test]
+    fn a_blank_turn_shows_which_tool_failed() {
+        let facts = BlankFacts {
+            calls: 1,
+            failed: vec!["ejecutando playerctl: «playerctl» no está en tu lista".to_owned()],
+            ..BlankFacts::default()
+        };
+        let line = blank_reason(&facts);
+
+        assert!(line.contains("fallaron"), "{line}");
+        assert!(line.contains("no está en tu lista"), "el detalle tiene que verse: {line}");
+    }
+
+    #[test]
+    fn a_blank_turn_without_tools_blames_the_provider() {
+        let facts = BlankFacts { empty_rounds: 1, ..BlankFacts::default() };
+        let line = blank_reason(&facts);
+
+        assert!(line.contains("el proveedor no devolvió texto"), "{line}");
+        assert!(line.contains("el problema es del servicio"), "{line}");
+    }
+
+    #[test]
+    fn a_blank_turn_says_when_the_last_round_asked_too_late() {
+        let facts = BlankFacts {
+            calls: 2,
+            asked_too_late: true,
+            empty_rounds: 1,
+            ..BlankFacts::default()
+        };
+        let line = blank_reason(&facts);
+
+        assert!(line.contains("última ronda"), "{line}");
+        assert!(line.contains("lo hago primero"), "{line}");
     }
 }

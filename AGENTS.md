@@ -25,7 +25,7 @@ tools/voice           machine-local, gitignored: venv + GPT-SoVITS weights (~11 
 ```bash
 cargo build -p nerea-desktop                 # debug build
 cargo run -p nerea-desktop                   # the app
-cargo test                                   # 209 tests, no network
+cargo test                                   # 213 tests, no network
 cargo clippy --all-targets -- -D warnings
 node --check ui/avatar.js && node --check ui/main.js
 
@@ -163,6 +163,10 @@ its prose. That is deliberate: with a JSON block in the prompt a flash model wou
   purpose, but a provider that stops sending used to freeze the turn forever — and the stop button
   did nothing, because the loop was blocked waiting for a byte. Ninety seconds of silence now ends
   the turn with a message.
+- **"Me quedé en blanco" is a diagnosis, not a sentence.** The empty-reply path used to say the
+  same shrug every time. It now reports the fact it already had: the reading budget ran out, a tool
+  failed (with the reason), the last round asked for a tool with no turn left, or the provider sent
+  no text at all.
 - **A launcher that copies `Exec=` verbatim fails on flatpak.** The exported entry carries
   `--file-forwarding … @@u %U @@`; with no files those markers make `flatpak` complain. Flatpak
   entries are rebuilt as `flatpak run <id>`, and field codes are dropped everywhere else.
